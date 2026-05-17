@@ -83,6 +83,16 @@ This is fine for Phase 0 (we just need to validate hardware).
 - Realistic to implement in Phase 1 (~1 weekend extra effort), risk it slips to Phase 2 if there are integration headaches
 - **Bottom line: yes, OTA is possible. Not in tomorrow's flash, but planned for HiveKit's own firmware.**
 
+## Button UX (HiveKit firmware — not florianL21's)
+
+For reference, HiveKit firmware will use the XIAO C6 BOOT button (GPIO9) for:
+
+- **Short press** → identify (LED flash)
+- **3 s long press** → pairing mode (network steering)
+- **10 s very long press** → factory reset (leave network + wipe NVS + reboot)
+
+Full spec + reference code: [`button-led-spec.md`](button-led-spec.md).
+
 ---
 
 ## After Phase 0 success — what's next
