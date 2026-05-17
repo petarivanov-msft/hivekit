@@ -1,0 +1,13 @@
+build/
+managed_components/
+dependencies.lock
+sdkconfig
+sdkconfig.old
+.vscode/
+.idea/
+.DS_Store
+*.pyc
+__pycache__/
+node_modules/
+.cache/
+.env
