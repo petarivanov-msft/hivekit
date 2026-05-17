@@ -1,0 +1,30 @@
+# menu "HiveKit SCD40 Sensor Configuration"
+# This file provides sensor-specific Kconfig options for scd40-c6.
+# The shared hivekit component's Kconfig is at components/hivekit/Kconfig.
+
+menu "HiveKit SCD40 Sensor"
+
+    config HIVEKIT_SCD40_SDA_GPIO
+        int "I²C SDA GPIO"
+        default 22
+        help
+            GPIO number for I²C SDA line.
+            On XIAO ESP32-C6 with Adafruit SCD-41 breakout this is GPIO22.
+
+    config HIVEKIT_SCD40_SCL_GPIO
+        int "I²C SCL GPIO"
+        default 23
+        help
+            GPIO number for I²C SCL line.
+            On XIAO ESP32-C6 with Adafruit SCD-41 breakout this is GPIO23.
+
+    config HIVEKIT_SCD40_MEASUREMENT_INTERVAL_MS
+        int "Sensor measurement interval (ms)"
+        default 300000
+        help
+            How often to push sensor readings to Zigbee (milliseconds).
+            Default 300000 = 5 minutes. The SCD40 always measures every 5s
+            internally; this controls how often we read and report.
+            Minimum recommended: 30000 (30s).
+
+endmenu

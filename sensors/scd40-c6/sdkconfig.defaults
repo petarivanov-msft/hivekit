@@ -1,0 +1,37 @@
+# Zigbee end-device defaults for HiveKit SCD40
+# Apply with: idf.py build (auto-merged with sdkconfig)
+
+# Target
+CONFIG_IDF_TARGET="esp32c6"
+
+# Zigbee role: End Device
+CONFIG_ZB_ENABLED=y
+CONFIG_ZB_ED_ROLE=y
+CONFIG_ZB_ZCZR_ROLE=n
+
+# Zigbee NVS partitions (must match partitions.csv)
+CONFIG_ZB_NVRAM_PARTITION="zb_storage"
+CONFIG_ZB_NVRAM_FCT_PARTITION="zb_fct"
+
+# Power management — light sleep is safe for Zigbee end devices
+CONFIG_PM_ENABLE=y
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+CONFIG_PM_POWER_DOWN_CPU_IN_LIGHT_SLEEP=y
+
+# Log level: INFO in production, DEBUG for development
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+# CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y
+
+# HiveKit Kconfig defaults (can be overridden in sdkconfig)
+CONFIG_HIVEKIT_BUTTON_ENABLED=y
+CONFIG_HIVEKIT_BUTTON_GPIO=9
+CONFIG_HIVEKIT_BUTTON_LONG_PRESS_TIME_MS=3000
+CONFIG_HIVEKIT_BUTTON_SHORT_PRESS_TIME_MS=100
+CONFIG_HIVEKIT_LED_ENABLED=y
+CONFIG_HIVEKIT_LED_GPIO=15
+CONFIG_HIVEKIT_LED_ACTIVE_HIGH=y
+CONFIG_HIVEKIT_SCD40_SDA_GPIO=22
+CONFIG_HIVEKIT_SCD40_SCL_GPIO=23
+
+# FreeRTOS
+CONFIG_FREERTOS_HZ=1000

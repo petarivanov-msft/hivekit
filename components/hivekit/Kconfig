@@ -1,0 +1,57 @@
+menu "HiveKit Configuration"
+
+    config HIVEKIT_BUTTON_ENABLED
+        bool "Enable BOOT button support"
+        default y
+        help
+            Enable button handling via espressif/button component.
+            Disable if you want to handle the button yourself.
+
+    config HIVEKIT_BUTTON_GPIO
+        int "Button GPIO number"
+        default 9
+        depends on HIVEKIT_BUTTON_ENABLED
+        help
+            GPIO for the pairing/reset button.
+            On XIAO ESP32-C6 this is GPIO9 (BOOT button).
+            Active LOW; internal pull-up is enabled.
+
+    config HIVEKIT_BUTTON_LONG_PRESS_TIME_MS
+        int "Long press threshold (ms) for pairing"
+        default 3000
+        depends on HIVEKIT_BUTTON_ENABLED
+        help
+            Hold duration in milliseconds to trigger network steering (pairing mode).
+
+    config HIVEKIT_BUTTON_SHORT_PRESS_TIME_MS
+        int "Short press threshold (ms)"
+        default 100
+        depends on HIVEKIT_BUTTON_ENABLED
+        help
+            Minimum hold duration in milliseconds to register a single press.
+
+    config HIVEKIT_LED_ENABLED
+        bool "Enable LED support"
+        default y
+        help
+            Enable LED state machine via espressif/led_indicator component.
+            Disable if your board has no LED or you handle it yourself.
+
+    config HIVEKIT_LED_GPIO
+        int "LED GPIO number"
+        default 15
+        depends on HIVEKIT_LED_ENABLED
+        help
+            GPIO connected to the status LED.
+            On XIAO ESP32-C6 the onboard LED is on GPIO15 (active HIGH).
+            Check your board's schematic — some variants use different pins.
+
+    config HIVEKIT_LED_ACTIVE_HIGH
+        bool "LED active HIGH"
+        default y
+        depends on HIVEKIT_LED_ENABLED
+        help
+            Set to y if LED turns on when GPIO is HIGH.
+            Set to n if LED turns on when GPIO is LOW (active LOW).
+
+endmenu
