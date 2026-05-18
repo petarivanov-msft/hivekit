@@ -160,8 +160,10 @@ static void zigbee_main_task(void *pvParameters)
      *    with NWK_NO_NETWORKS (status=0x03).
      * 2) Scan all 11 Zigbee channels (11-26) on both primary and secondary masks. */
     ezb_aps_secur_enable_distributed_security(false);
-    ezb_bdb_set_primary_channel_set(0x07FFF800);
-    ezb_bdb_set_secondary_channel_set(0x07FFF800);
+    /* Primary: just channel 11 (the most common Z2M default) for fast first-join.
+     * Secondary: all channels 11-26 as fallback if the user runs a non-standard channel. */
+    ezb_bdb_set_primary_channel_set(0x00000800);   /* ch 11 only */
+    ezb_bdb_set_secondary_channel_set(0x07FFF800); /* ch 11-26 */
 
     /* Start Zigbee stack — autostart=false so we control commissioning
      * via the signal handler (EZB_ZDO_SIGNAL_SKIP_STARTUP) */
