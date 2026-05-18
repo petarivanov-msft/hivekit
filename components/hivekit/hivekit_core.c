@@ -227,7 +227,7 @@ esp_err_t hivekit_create_scd40_device(void)
                                         (void *)s_cfg->model_identifier);
     if (s_cfg->fw_version) {
         ezb_zcl_basic_cluster_desc_add_attr(basic_desc,
-                                            EZB_ZCL_ATTR_BASIC_SW_BUILD_ID,
+                                            EZB_ZCL_ATTR_BASIC_SW_BUILD_ID_ID,
                                             (void *)s_cfg->fw_version);
     }
 
@@ -243,7 +243,7 @@ esp_err_t hivekit_create_scd40_device(void)
         ezb_zcl_rel_humidity_measurement_create_cluster_desc(&rh_cfg,
                                                              EZB_ZCL_CLUSTER_SERVER);
     if (rh_cluster) {
-        ezb_af_endpoint_desc_add_cluster(ep_desc, rh_cluster);
+        ezb_af_endpoint_add_cluster_desc(ep_desc, rh_cluster);
     } else {
         ESP_LOGW(TAG, "Failed to create humidity cluster (non-fatal, will be missing)");
     }
@@ -262,7 +262,7 @@ esp_err_t hivekit_create_scd40_device(void)
         ezb_zcl_carbon_dioxide_measurement_create_cluster_desc(&co2_cfg,
                                                                EZB_ZCL_CLUSTER_SERVER);
     if (co2_cluster) {
-        ezb_af_endpoint_desc_add_cluster(ep_desc, co2_cluster);
+        ezb_af_endpoint_add_cluster_desc(ep_desc, co2_cluster);
     } else {
         ESP_LOGW(TAG, "Failed to create CO2 cluster (non-fatal, will be missing)");
     }

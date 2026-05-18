@@ -56,6 +56,35 @@
 #include "hivekit.h"
 #include "sensor_scd40.h"
 
+/* ── Zigbee config helpers (not in SDK headers, defined per-project) ───────── */
+#ifndef ESP_ZIGBEE_STORAGE_PARTITION_NAME
+#define ESP_ZIGBEE_STORAGE_PARTITION_NAME "zb_storage"
+#endif
+
+#define HIVEKIT_ZED_CONFIG() \
+    { \
+        .device_type         = EZB_NWK_DEVICE_TYPE_END_DEVICE, \
+        .install_code_policy = false, \
+        .zed_config = { \
+            .ed_timeout = EZB_NWK_ED_TIMEOUT_64MIN, \
+            .keep_alive = 4000, \
+        }, \
+    }
+
+#define HIVEKIT_PLATFORM_CONFIG() \
+    { \
+        .storage_partition_name = ESP_ZIGBEE_STORAGE_PARTITION_NAME, \
+        .radio_config = { \
+            .radio_mode = ESP_ZIGBEE_RADIO_MODE_NATIVE, \
+        }, \
+    }
+
+#define HIVEKIT_ZIGBEE_DEFAULT_CONFIG() \
+    { \
+        .device_config   = HIVEKIT_ZED_CONFIG(), \
+        .platform_config = HIVEKIT_PLATFORM_CONFIG(), \
+    }
+
 static const char *TAG = "hivekit_main";
 
 #define HIVEKIT_MANUFACTURER "HiveKit"
@@ -106,8 +135,8 @@ static void sensor_task(void *pvParameters)
 
 static void zigbee_main_task(void *pvParameters)
 {
-    /* SOURCE: esp_zigbee.h — ESP_ZIGBEE_DEFAULT_CONFIG() */
-    esp_zigbee_config_t config = ESP_ZIGBEE_DEFAULT_CONFIG();
+    /* SOURCE: esp_zigbee.h — use local macro (macros live in example headers, not SDK) */
+    esp_zigbee_config_t config = HIVEKIT_ZIGBEE_DEFAULT_CONFIG();
 
     ESP_ERROR_CHECK(esp_zigbee_init(&config));
 
