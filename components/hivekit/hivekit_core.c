@@ -294,7 +294,7 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
      * SOURCE: ezbee/zcl/cluster/temperature_measurement_desc.h */
     int16_t temp_val = (int16_t)(reading->temperature_c * 100.0f);
     esp_zigbee_lock_acquire(portMAX_DELAY);
-    ezb_zcl_set_attr_value(ep_id,
+    esp_err_t t_err = ezb_zcl_set_attr_value(ep_id,
                            EZB_ZCL_CLUSTER_ID_TEMPERATURE_MEASUREMENT,
                            EZB_ZCL_CLUSTER_SERVER,
                            EZB_ZCL_ATTR_TEMPERATURE_MEASUREMENT_MEASURED_VALUE_ID,
@@ -306,7 +306,7 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
      * e.g. 55.00% → 5500
      * SOURCE: ezbee/zcl/cluster/rel_humidity_measurement_desc.h */
     uint16_t rh_val = (uint16_t)(reading->humidity_pct * 100.0f);
-    ezb_zcl_set_attr_value(ep_id,
+    esp_err_t h_err = ezb_zcl_set_attr_value(ep_id,
                            EZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
                            EZB_ZCL_CLUSTER_SERVER,
                            EZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ID,
@@ -318,7 +318,7 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
      * e.g. 800 ppm → 0.0008f
      * SOURCE: ezbee/zcl/cluster/carbon_dioxide_measurement_desc.h */
     float co2_val = reading->co2_ppm / 1000000.0f;
-    ezb_zcl_set_attr_value(ep_id,
+    esp_err_t c_err = ezb_zcl_set_attr_value(ep_id,
                            EZB_ZCL_CLUSTER_ID_CARBON_DIOXIDE_MEASUREMENT,
                            EZB_ZCL_CLUSTER_SERVER,
                            EZB_ZCL_ATTR_CARBON_DIOXIDE_MEASUREMENT_MEASURED_VALUE_ID,
@@ -327,6 +327,9 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
                            false);
 
     esp_zigbee_lock_release();
+
+    ESP_LOGI(TAG, "ZCL report results: temp=0x%x humidity=0x%x co2=0x%x (co2_raw=%.6f from %.0f ppm)",
+             t_err, h_err, c_err, co2_val, reading->co2_ppm);
 
     return ESP_OK;
 }
