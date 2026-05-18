@@ -260,9 +260,9 @@ esp_err_t hivekit_create_scd40_device(void)
      * where 1.0 = 1,000,000 ppm. So 400 ppm = 0.0004.
      * SOURCE: ezbee/zcl/cluster/carbon_dioxide_measurement_desc.h */
     ezb_zcl_carbon_dioxide_measurement_cluster_server_config_t co2_cfg = {
-        .measured_value     = 0.0f / 0.0f, /* NaN = unknown */
-        .min_measured_value = 0.0f / 0.0f,
-        .max_measured_value = 0.0f / 0.0f,
+        .measured_value     = 0.0f,        /* will be overwritten on first reading */
+        .min_measured_value = 0.0f,        /* 0 ppm  */
+        .max_measured_value = 0.01f,       /* 10,000 ppm — SCD40 spec max is 40k, 10k is safer for display */
     };
     /* SOURCE: ezbee/zcl/cluster/carbon_dioxide_measurement_desc.h */
     ezb_zcl_cluster_desc_t co2_cluster =
