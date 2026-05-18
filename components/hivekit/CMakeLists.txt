@@ -10,7 +10,7 @@ idf_component_register(
         "include"
     REQUIRES
         nvs_flash
-        esp_zigbee
+        espressif__esp_zigbee_lib
         freertos
         # espressif/button and espressif/led_indicator are declared in
         # the sensor firmware's idf_component.yml and are available via

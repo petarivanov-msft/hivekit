@@ -1,0 +1,14 @@
+## Dependencies for the hivekit shared component itself.
+## Declared here so any sensor firmware that adds components/hivekit/ to
+## EXTRA_COMPONENT_DIRS automatically pulls in the Zigbee stack and
+## peripheral drivers via IDF Component Manager.
+
+dependencies:
+  idf:
+    version: ">=5.5"
+  espressif/esp-zigbee-lib:
+    version: "~2.0.0"
+  espressif/button:
+    version: "^4.0.0"
+  espressif/led_indicator:
+    version: "^0.9.0"
