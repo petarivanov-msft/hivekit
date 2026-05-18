@@ -5,13 +5,10 @@ dependencies:
   idf:
     version: ">=5.5"
 
-  # Zigbee stack (Apache-2.0, v2.x = no more ZBOSS binary blob)
+  # Zigbee stack (Apache-2.0). v2.x drops the ZBOSS third-party blob entirely;
+  # esp-zigbee-lib is now the only dep (Espressif's own stack).
   # SOURCE: https://github.com/espressif/esp-zigbee-sdk
   espressif/esp-zigbee-lib:
-    version: "~2.0.0"
-
-  # ZBOSS implementation (required alongside esp-zigbee-lib in v2.x)
-  espressif/esp-zboss-lib:
     version: "~2.0.0"
 
   # Button driver — for BOOT button (pairing / factory reset)
