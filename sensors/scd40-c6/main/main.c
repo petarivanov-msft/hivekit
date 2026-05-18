@@ -151,6 +151,18 @@ static void zigbee_main_task(void *pvParameters)
     /* Build the Zigbee device (clusters, attributes) */
     ESP_ERROR_CHECK(hivekit_create_scd40_device());
 
+    /* Pre-start commissioning setup — MUST be called before esp_zigbee_start().
+     * SOURCE: esp-zigbee-sdk examples/temperature_sensor.c
+     *
+     * 1) Disable distributed security so we join a centralized trust-centre
+     *    network (Zigbee2MQTT, ZHA, deCONZ all use centralized TC).
+     *    v2 SDK defaults to distributed=true which silently rejects Z2M beacons
+     *    with NWK_NO_NETWORKS (status=0x03).
+     * 2) Scan all 11 Zigbee channels (11-26) on both primary and secondary masks. */
+    ezb_aps_secur_enable_distributed_security(false);
+    ezb_bdb_set_primary_channel_set(0x07FFF800);
+    ezb_bdb_set_secondary_channel_set(0x07FFF800);
+
     /* Start Zigbee stack — autostart=false so we control commissioning
      * via the signal handler (EZB_ZDO_SIGNAL_SKIP_STARTUP) */
     ESP_ERROR_CHECK(esp_zigbee_start(false));
