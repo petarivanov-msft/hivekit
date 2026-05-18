@@ -117,8 +117,13 @@ static bool hivekit_app_signal_handler(const ezb_app_signal_t *app_signal)
             vTaskDelay(pdMS_TO_TICKS(2000));
             hivekit_led_set_pattern(HIVEKIT_LED_OFF);
         } else {
-            ESP_LOGW(TAG, "Network steering failed (status=0x%02x)", status);
-            hivekit_led_set_pattern(HIVEKIT_LED_ERROR);
+            ESP_LOGW(TAG, "Network steering failed (status=0x%02x), retrying in 3s", status);
+            hivekit_led_set_pattern(HIVEKIT_LED_SLOW_BLINK);
+            /* Auto-retry: no button press needed for first pairing.
+             * Same UX as florianL21/zigbee-co2-sensor — device keeps
+             * trying until coordinator opens permit-join. */
+            vTaskDelay(pdMS_TO_TICKS(3000));
+            ezb_bdb_start_top_level_commissioning(EZB_BDB_MODE_NETWORK_STEERING);
         }
     } break;
 

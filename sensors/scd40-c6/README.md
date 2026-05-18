@@ -79,7 +79,7 @@ After flashing:
 1. Copy `converters/hivekit-scd40.js` to your Z2M `external_converters/` directory
 2. Restart Z2M (or it auto-loads if `advanced.ext_pan_id` is configured)
 3. Enable **Permit join** in Z2M dashboard
-4. Power cycle the device (or hold BOOT 3s to trigger steering)
+4. Power cycle the device. It will auto-enter pairing mode and keep retrying every 3s until it joins (no button press needed for first pair).
 5. Watch Z2M logs — you should see `hk-scd40-c6` interviewing
 
 ---
