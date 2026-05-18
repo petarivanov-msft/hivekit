@@ -4,14 +4,14 @@
  *
  * hivekit_led.c — LED state machine for HiveKit devices
  *
- * Uses espressif/led_indicator v0.9.x (API verified against esp-iot-solution).
- * API:
- *   led_indicator_new_gpio_device()  → led_indicator_gpio.h
- *   led_indicator_start()            → led_indicator.h
- *   led_indicator_stop()             → led_indicator.h
- *   led_indicator_set_on_off()       → led_indicator.h
- *   blink_step_t: {type, value, hold_time_ms}, with LED_BLINK_LOOP/LED_BLINK_STOP
- *   led_indicator_config_t: {blink_lists, blink_list_num}
+ * API verified against espressif/led_indicator v0.9.3:
+ *   led_indicator_create()   → led_indicator.h
+ *   led_indicator_config_t   → {mode, led_indicator_gpio_config, blink_lists, blink_list_num}
+ *   led_indicator_gpio_config_t  → led_gpio.h (included via led_indicator.h)
+ *   blink_step_t             → {type, value, hold_time_ms}
+ *   LED_BLINK_HOLD / LED_BLINK_LOOP / LED_BLINK_STOP  (not LED_STATE_*)
+ *   LED_STATE_ON (UINT8_MAX=255) / LED_STATE_OFF (0)
+ *   LED_GPIO_MODE
  */
 
 #include "hivekit.h"
@@ -21,16 +21,15 @@
 
 #if CONFIG_HIVEKIT_LED_ENABLED
 #include "led_indicator.h"
-#include "led_indicator_gpio.h"
 
 static const char *TAG = "hivekit_led";
 static led_indicator_handle_t s_led_handle = NULL;
 
 /*
- * blink_step_t fields: {type, value, hold_time_ms}
- * type:          LED_BLINK_HOLD | LED_BLINK_LOOP | LED_BLINK_STOP
- * value:         LED_STATE_ON (255) | LED_STATE_OFF (0)  — or brightness 0-255
- * hold_time_ms:  duration; set 0 for LOOP/STOP
+ * blink_step_t: {type, value, hold_time_ms}
+ *   type:         LED_BLINK_HOLD | LED_BLINK_LOOP | LED_BLINK_STOP
+ *   value:        LED_STATE_ON (255) | LED_STATE_OFF (0) | or brightness 0-255
+ *   hold_time_ms: duration in ms; 0 for LOOP/STOP
  */
 static const blink_step_t s_slow_blink[] = {
     {LED_BLINK_HOLD, LED_STATE_ON,  500},
@@ -46,7 +45,7 @@ static const blink_step_t s_fast_blink[] = {
 
 static const blink_step_t s_single_flash[] = {
     {LED_BLINK_HOLD, LED_STATE_ON,  100},
-    {LED_BLINK_HOLD, LED_STATE_OFF,   0},
+    {LED_BLINK_HOLD, LED_STATE_OFF, 100},
     {LED_BLINK_STOP, 0, 0},
 };
 
@@ -56,7 +55,7 @@ static const blink_step_t s_error_flash[] = {
     {LED_BLINK_HOLD, LED_STATE_ON,  100},
     {LED_BLINK_HOLD, LED_STATE_OFF, 100},
     {LED_BLINK_HOLD, LED_STATE_ON,  100},
-    {LED_BLINK_HOLD, LED_STATE_OFF,   0},
+    {LED_BLINK_HOLD, LED_STATE_OFF, 100},
     {LED_BLINK_STOP, 0, 0},
 };
 
@@ -72,17 +71,21 @@ static const blink_step_t *const s_patterns[] = {
 
 esp_err_t hivekit_led_init(void)
 {
-    led_indicator_config_t led_cfg = {
-        .blink_lists    = s_patterns,
-        .blink_list_num = sizeof(s_patterns) / sizeof(s_patterns[0]),
-    };
-    led_indicator_gpio_config_t gpio_cfg = {
+    /* v0.9.x: led_indicator_config_t holds mode + gpio config pointer + blink lists.
+     * led_indicator_gpio_config_t is defined in led_gpio.h (included via led_indicator.h) */
+    static led_indicator_gpio_config_t gpio_cfg = {
         .is_active_level_high = CONFIG_HIVEKIT_LED_ACTIVE_HIGH,
         .gpio_num             = CONFIG_HIVEKIT_LED_GPIO,
     };
-    esp_err_t err = led_indicator_new_gpio_device(&led_cfg, &gpio_cfg, &s_led_handle);
-    if (err != ESP_OK || !s_led_handle) {
-        ESP_LOGE(TAG, "Failed to create LED indicator (err=0x%x)", err);
+    led_indicator_config_t led_cfg = {
+        .mode                    = LED_GPIO_MODE,
+        .led_indicator_gpio_config = &gpio_cfg,
+        .blink_lists             = s_patterns,
+        .blink_list_num          = sizeof(s_patterns) / sizeof(s_patterns[0]),
+    };
+    s_led_handle = led_indicator_create(&led_cfg);
+    if (!s_led_handle) {
+        ESP_LOGE(TAG, "Failed to create LED indicator");
         return ESP_FAIL;
     }
     ESP_LOGI(TAG, "LED initialised on GPIO%d", CONFIG_HIVEKIT_LED_GPIO);
