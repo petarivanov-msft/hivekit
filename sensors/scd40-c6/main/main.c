@@ -91,8 +91,8 @@ static const char *TAG = "hivekit_main";
 #define HIVEKIT_MODEL        "hk-scd40-c6"
 #define HIVEKIT_FW_VERSION   "1.0.0-phase1"
 
-/* Sensor reading interval (ms). 300 000 = 5 minutes. */
-#define SENSOR_INTERVAL_MS   (300 * 1000)
+/* Sensor reading interval (ms). 30 000 = 30 seconds (Phase 1 debug). */
+#define SENSOR_INTERVAL_MS   (30 * 1000)
 
 /* ── Sensor task ──────────────────────────────────────────────────────────── */
 
