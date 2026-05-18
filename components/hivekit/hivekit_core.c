@@ -76,6 +76,11 @@ static bool hivekit_app_signal_handler(const ezb_app_signal_t *app_signal)
     case EZB_ZDO_SIGNAL_SKIP_STARTUP:
         /* Stack framework ready; kick off BDB initialization */
         ESP_LOGI(TAG, "Zigbee stack ready — starting BDB init");
+        /* Scan ALL Zigbee channels (11-26) so we find the coordinator
+         * regardless of which channel Z2M is on. Default may be just ch11.
+         * SOURCE: bdb.h — ezb_bdb_set_primary_channel_set, EZB_TRANSCEIVER_ALL_CHANNELS_MASK */
+        ezb_bdb_set_primary_channel_set(EZB_TRANSCEIVER_ALL_CHANNELS_MASK);
+        ezb_bdb_set_secondary_channel_set(EZB_TRANSCEIVER_ALL_CHANNELS_MASK);
         /* SOURCE: bdb.h — ezb_bdb_start_top_level_commissioning */
         ezb_bdb_start_top_level_commissioning(EZB_BDB_MODE_INITIALIZATION);
         break;
