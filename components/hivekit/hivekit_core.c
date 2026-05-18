@@ -289,12 +289,9 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
 
     const uint8_t ep_id = 1;
 
-    /* Temperature: int16 in units of 0.01 °C
-     * e.g. 25.30 °C → 2530
-     * SOURCE: ezbee/zcl/cluster/temperature_measurement_desc.h */
     int16_t temp_val = (int16_t)(reading->temperature_c * 100.0f);
     esp_zigbee_lock_acquire(portMAX_DELAY);
-    esp_err_t t_err = ezb_zcl_set_attr_value(ep_id,
+    ezb_zcl_set_attr_value(ep_id,
                            EZB_ZCL_CLUSTER_ID_TEMPERATURE_MEASUREMENT,
                            EZB_ZCL_CLUSTER_SERVER,
                            EZB_ZCL_ATTR_TEMPERATURE_MEASUREMENT_MEASURED_VALUE_ID,
@@ -302,11 +299,8 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
                            (uint8_t *)&temp_val,
                            false);
 
-    /* Humidity: uint16 in units of 0.01 %
-     * e.g. 55.00% → 5500
-     * SOURCE: ezbee/zcl/cluster/rel_humidity_measurement_desc.h */
     uint16_t rh_val = (uint16_t)(reading->humidity_pct * 100.0f);
-    esp_err_t h_err = ezb_zcl_set_attr_value(ep_id,
+    ezb_zcl_set_attr_value(ep_id,
                            EZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
                            EZB_ZCL_CLUSTER_SERVER,
                            EZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ID,
@@ -314,11 +308,8 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
                            (uint8_t *)&rh_val,
                            false);
 
-    /* CO2: single float in [0.0, 1.0] where 1.0 = 1,000,000 ppm
-     * e.g. 800 ppm → 0.0008f
-     * SOURCE: ezbee/zcl/cluster/carbon_dioxide_measurement_desc.h */
     float co2_val = reading->co2_ppm / 1000000.0f;
-    esp_err_t c_err = ezb_zcl_set_attr_value(ep_id,
+    ezb_zcl_set_attr_value(ep_id,
                            EZB_ZCL_CLUSTER_ID_CARBON_DIOXIDE_MEASUREMENT,
                            EZB_ZCL_CLUSTER_SERVER,
                            EZB_ZCL_ATTR_CARBON_DIOXIDE_MEASUREMENT_MEASURED_VALUE_ID,
@@ -327,9 +318,6 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
                            false);
 
     esp_zigbee_lock_release();
-
-    ESP_LOGI(TAG, "ZCL report results: temp=0x%x humidity=0x%x co2=0x%x (co2_raw=%.6f from %.0f ppm)",
-             t_err, h_err, c_err, co2_val, reading->co2_ppm);
 
     return ESP_OK;
 }
