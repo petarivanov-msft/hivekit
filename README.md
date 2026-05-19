@@ -2,16 +2,19 @@
 
 > ## 🚧 WIP — Experimental Branch In Play
 >
-> The `main` branch is the **known-good baseline** (`v0.3.2-known-good`) — it pairs reliably and reports CO2 / temperature / humidity.
+> **Branching model** (see `CONTRIBUTING.md`):
+> - **`main`** — stable. Latest stable tag: `v0.3.2-known-good`. Always safe to flash.
+> - **`dev`** — integration branch. Pre-release tags (`v0.3.3-beta.N`) cut from here.
+> - **`experiment/*`** — throwaway feature branches.
 >
-> An experimental branch [`experiment/sleep-enable`](https://github.com/petarivanov-msft/hivekit/tree/experiment/sleep-enable) is under test to fix a parent-selection issue on multi-router meshes (the C6 currently only joins when physically next to the coordinator). It adds two `sdkconfig` lines:
+> Current experiment: [`experiment/sleep-enable`](https://github.com/petarivanov-msft/hivekit/tree/experiment/sleep-enable) — fixes a parent-selection issue on multi-router meshes (the C6 currently only joins when physically next to the coordinator). It adds two `sdkconfig` lines:
 >
 > - `CONFIG_IEEE802154_SLEEP_ENABLE=y` — extends `macResponseWaitTime` so slow routers (Aqara E1 wall switches) can ACK association requests inside the scan window.
 > - `CONFIG_ZB_ENABLE_ZGP=n` — disables Zigbee Green Power, freeing scan budget.
 >
 > Background: `esp-zigbee-sdk` 2.x shortened per-channel scan dwell time and tightened association timing vs 1.5.x. Some routers (especially Aqara) take 35–42 symbols to ACK, landing outside the default 2.x window. Florian's working build ([`florianL21/zigbee-co2-sensor`](https://github.com/florianL21/zigbee-co2-sensor)) uses 1.5.1 + sleep-enable, which is why his pairs everywhere and ours doesn't.
 >
-> Testing in progress — full report once verified. Use `main` if you want a working build today.
+> Testing in progress — once verified the experiment will be merged into `dev` and tagged as a pre-release. Use `main` if you want a working build today.
 
 ![Build](https://github.com/petarivanov-msft/hivekit/actions/workflows/build.yml/badge.svg)
 
