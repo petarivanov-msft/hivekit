@@ -145,6 +145,11 @@ static bool hivekit_app_signal_handler(const ezb_app_signal_t *app_signal)
         ezb_bdb_comm_status_t status =
             *((const ezb_bdb_comm_status_t *)ezb_app_signal_get_params(app_signal));
         if (status == EZB_BDB_STATUS_SUCCESS) {
+            /* Cancel any pending retry alarm — a previous steering attempt may have
+             * scheduled one ~3 s ago that hasn't fired yet. Without this, the alarm
+             * would re-call ezb_bdb_start_top_level_commissioning() on an
+             * already-joined device. */
+            esp_zb_scheduler_alarm_cancel(retry_network_steering_cb, 0);
             /* SOURCE: nwk.h — ezb_nwk_get_panid, ezb_nwk_get_current_channel, ezb_nwk_get_short_address */
             ESP_LOGI(TAG, "Joined network: PAN 0x%04hx, ch %d, addr 0x%04hx",
                      ezb_nwk_get_panid(), ezb_nwk_get_current_channel(),
