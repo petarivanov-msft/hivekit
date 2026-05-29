@@ -159,12 +159,13 @@ static void zigbee_main_task(void *pvParameters)
      *    network (Zigbee2MQTT, ZHA, deCONZ all use centralized TC).
      *    v2 SDK defaults to distributed=true which silently rejects Z2M beacons
      *    with NWK_NO_NETWORKS (status=0x03).
-     * 2) Scan all 11 Zigbee channels (11-26) on both primary and secondary masks. */
+     * 2) Scan all Zigbee channels 11-26 in a single primary mask call. */
     ezb_aps_secur_enable_distributed_security(false);
-    /* Primary: just channel 11 (the most common Z2M default) for fast first-join.
-     * Secondary: all channels 11-26 as fallback if the user runs a non-standard channel. */
-    ezb_bdb_set_primary_channel_set(0x00000800);   /* ch 11 only */
-    ezb_bdb_set_secondary_channel_set(0x07FFF800); /* ch 11-26 */
+    /* Match florianL21/zigbee-co2-sensor reference (ESP_ZB_TRANSCEIVER_ALL_CHANNELS_MASK).
+     * v2 SDK has no convenience macro; literal mask covers 802.15.4 channels 11-26. */
+    ezb_bdb_set_primary_channel_set(CONFIG_HIVEKIT_ZIGBEE_PRIMARY_CHANNEL_MASK);
+    ESP_LOGI(TAG, "Primary channel mask: 0x%08x (ch 11-26 by default)",
+             CONFIG_HIVEKIT_ZIGBEE_PRIMARY_CHANNEL_MASK);
 
     /* Start Zigbee stack — autostart=false so we control commissioning
      * via the signal handler (EZB_ZDO_SIGNAL_SKIP_STARTUP) */

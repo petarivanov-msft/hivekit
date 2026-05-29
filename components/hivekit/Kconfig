@@ -55,6 +55,16 @@ menu "HiveKit Configuration"
             Set to n if LED turns on when GPIO is LOW (active LOW).
 
 
+    config HIVEKIT_ZIGBEE_PRIMARY_CHANNEL_MASK
+        hex "Zigbee primary channel scan mask"
+        default 0x07FFF800
+        help
+            32-bit bitmask of 802.15.4 channels to scan during network steering.
+            Default 0x07FFF800 = all standard Zigbee channels (11-26), matching
+            the florianL21/zigbee-co2-sensor reference framework. Pin to a
+            single channel for faster cold-boot if your coordinator is fixed
+            (e.g. channel 11 only = (1 << 11) = 0x00000800).
+
     config HIVEKIT_BOARD_XIAO_C6_ANTENNA
         bool "Select on-PCB antenna on XIAO ESP32-C6 boot"
         default y
