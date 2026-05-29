@@ -185,7 +185,7 @@ void app_main(void)
     /* Select on-PCB chip antenna — must be the very first action.
      * Drives GPIO3=0 (RF amp enable) + GPIO14=0 (chip antenna).
      * Guarded by CONFIG_HIVEKIT_BOARD_XIAO_C6_ANTENNA (default y). */
-    hivekit_board_xiao_c6_init_antenna();
+    ESP_ERROR_CHECK(hivekit_board_xiao_c6_init_antenna());
 
     /* NVS is required for Zigbee NVS storage */
     esp_err_t err = nvs_flash_init();

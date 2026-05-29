@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include "esp_err.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -31,9 +33,9 @@ extern "C" {
  * Has no effect (becomes an empty inline) when the symbol is not set.
  */
 #ifdef CONFIG_HIVEKIT_BOARD_XIAO_C6_ANTENNA
-void hivekit_board_xiao_c6_init_antenna(void);
+esp_err_t hivekit_board_xiao_c6_init_antenna(void);
 #else
-static inline void hivekit_board_xiao_c6_init_antenna(void) {}
+static inline esp_err_t hivekit_board_xiao_c6_init_antenna(void) { return ESP_OK; }
 #endif
 
 #ifdef __cplusplus

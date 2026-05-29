@@ -24,11 +24,13 @@
 static const char *TAG = "hivekit_board";
 
 /* GPIO3:  RF amplifier enable — drive LOW to enable the amp */
-#define XIAO_C6_GPIO_RF_AMP_EN  GPIO_NUM_3
+#define XIAO_C6_GPIO_RF_AMP_EN          GPIO_NUM_3
 /* GPIO14: Antenna select — drive LOW for on-PCB chip antenna */
-#define XIAO_C6_GPIO_ANT_SEL    GPIO_NUM_14
+#define XIAO_C6_GPIO_ANT_SEL            GPIO_NUM_14
+/* RF switch settling time (matches florianL21/zigbee-co2-sensor reference) */
+#define XIAO_C6_RF_SWITCH_SETTLE_MS     100
 
-void hivekit_board_xiao_c6_init_antenna(void)
+esp_err_t hivekit_board_xiao_c6_init_antenna(void)
 {
     /* Configure both pins as outputs, pull-up/pull-down disabled,
      * interrupts disabled.  This is the modern gpio_config_t approach;
@@ -41,16 +43,20 @@ void hivekit_board_xiao_c6_init_antenna(void)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type    = GPIO_INTR_DISABLE,
     };
-    gpio_config(&io_conf);
+    esp_err_t err = gpio_config(&io_conf);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "gpio_config failed: %s", esp_err_to_name(err));
+        return err;
+    }
 
-    /* Drive GPIO3 LOW (RF amp enable), wait 100 ms for the RF switch to
-     * settle (matches reference configure_internal_antenna() vTaskDelay),
+    /* Drive GPIO3 LOW (RF amp enable), wait for the RF switch to settle,
      * then drive GPIO14 LOW (antenna select = on-PCB chip antenna). */
     gpio_set_level(XIAO_C6_GPIO_RF_AMP_EN, 0);
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(XIAO_C6_RF_SWITCH_SETTLE_MS));
     gpio_set_level(XIAO_C6_GPIO_ANT_SEL,   0);
 
     ESP_LOGI(TAG, "internal antenna selected (GPIO3=0, GPIO14=0)");
+    return ESP_OK;
 }
 
 #endif /* CONFIG_HIVEKIT_BOARD_XIAO_C6_ANTENNA */
