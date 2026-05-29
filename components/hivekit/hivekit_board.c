@@ -18,6 +18,8 @@
 
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "hivekit_board";
 
@@ -41,10 +43,11 @@ void hivekit_board_xiao_c6_init_antenna(void)
     };
     gpio_config(&io_conf);
 
-    /* Drive both LOW:
-     *   GPIO3=0  → RF amplifier enabled
-     *   GPIO14=0 → on-PCB chip antenna selected */
+    /* Drive GPIO3 LOW (RF amp enable), wait 100 ms for the RF switch to
+     * settle (matches reference configure_internal_antenna() vTaskDelay),
+     * then drive GPIO14 LOW (antenna select = on-PCB chip antenna). */
     gpio_set_level(XIAO_C6_GPIO_RF_AMP_EN, 0);
+    vTaskDelay(pdMS_TO_TICKS(100));
     gpio_set_level(XIAO_C6_GPIO_ANT_SEL,   0);
 
     ESP_LOGI(TAG, "internal antenna selected (GPIO3=0, GPIO14=0)");
