@@ -118,9 +118,18 @@ static bool hivekit_app_signal_handler(const ezb_app_signal_t *app_signal)
 
     case EZB_BDB_SIGNAL_DEVICE_FIRST_START:
     case EZB_BDB_SIGNAL_DEVICE_REBOOT: {
-        /* SOURCE: bdb.h — ezb_bdb_comm_status_t, EZB_BDB_STATUS_SUCCESS */
+        /* SOURCE: bdb.h — ezb_bdb_comm_status_t, EZB_BDB_STATUS_SUCCESS
+         * v2 SDK payload for DEVICE_FIRST_START / DEVICE_REBOOT is
+         * ezb_bdb_signal_simple_params_t { uint8_t status; } (verified against
+         * espressif/esp-zigbee-sdk main branch app_signals.h, 2026-05-29).
+         * Casting params to ezb_bdb_comm_status_t* reads the first (and only)
+         * byte of that struct — correct by C99 common-initial-sequence rule.
+         * If you ever see status=0x00 (SUCCESS) on a BDB init that didn't
+         * actually complete, suspect the params pointer is NULL or the SDK
+         * version changed the struct layout. */
         ezb_bdb_comm_status_t status =
             *((const ezb_bdb_comm_status_t *)ezb_app_signal_get_params(app_signal));
+        ESP_LOGD(TAG, "BDB signal=0x%04x status=0x%02x", (unsigned)signal_type, (unsigned)status);
         if (status == EZB_BDB_STATUS_SUCCESS) {
             /* SOURCE: bdb.h — ezb_bdb_is_factory_new */
             if (ezb_bdb_is_factory_new()) {
@@ -142,8 +151,11 @@ static bool hivekit_app_signal_handler(const ezb_app_signal_t *app_signal)
     } break;
 
     case EZB_BDB_SIGNAL_STEERING: {
+        /* v2 SDK payload is ezb_bdb_signal_simple_params_t { uint8_t status; };
+         * same cast idiom as DEVICE_FIRST_START — verified correct (see above). */
         ezb_bdb_comm_status_t status =
             *((const ezb_bdb_comm_status_t *)ezb_app_signal_get_params(app_signal));
+        ESP_LOGD(TAG, "BDB signal=0x%04x status=0x%02x", (unsigned)signal_type, (unsigned)status);
         if (status == EZB_BDB_STATUS_SUCCESS) {
             /* Cancel any pending retry alarm — a previous steering attempt may have
              * scheduled one ~3 s ago that hasn't fired yet. Without this, the alarm
