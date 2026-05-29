@@ -36,6 +36,11 @@
  *   EZB_NWK_SIGNAL_PERMIT_JOIN_STATUS       → ezbee/app_signals.h
  *   ESP_ZIGBEE_DEFAULT_CONFIG()             → esp_zigbee.h (macro, see example usage)
  *   ESP_ZIGBEE_STORAGE_PARTITION_NAME       → esp_zigbee.h / sdkconfig
+ *   esp_zb_scheduler_alarm()               → ezbee/scheduler.h (v2 public API; v2 SDK kept
+ *                                             esp_zb_* prefix for scheduler. If the build
+ *                                             reports "undeclared", try including esp_zigbee.h
+ *                                             instead or use the ezb_scheduler_alarm() variant.)
+ *   esp_restart()                          → esp_system.h
  */
 
 #include "hivekit.h"
@@ -44,8 +49,10 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "esp_system.h"
 
 #include "esp_zigbee.h"
+#include "ezbee/scheduler.h"
 #include "ezbee/bdb.h"
 #include "ezbee/app_signals.h"
 #include "ezbee/nwk.h"
@@ -64,6 +71,33 @@ static const char *TAG = "hivekit_core";
 
 static const hivekit_config_t *s_cfg = NULL;
 static void (*s_signal_cb)(uint16_t signal_type, const void *params) = NULL;
+
+/* ── Scheduler-alarm callbacks ───────────────────────────────────────────── */
+
+/* Fired by esp_zb_scheduler_alarm() ~3 s after network steering fails.
+ * Runs on the Zigbee main task — no locking required for BDB calls. */
+static void retry_network_steering_cb(uint8_t param)
+{
+    (void)param;
+    ESP_LOGI(TAG, "Retry timer fired — starting BDB network steering");
+    ezb_bdb_start_top_level_commissioning(EZB_BDB_MODE_NETWORK_STEERING);
+}
+
+/* Fired ~2 s after a DEVICE_FIRST_START / DEVICE_REBOOT BDB-init failure.
+ * esp_restart() is safe here; the process tears down completely. */
+static void restart_device_cb(uint8_t param)
+{
+    (void)param;
+    ESP_LOGE(TAG, "Restart timer fired — rebooting now");
+    esp_restart();
+}
+
+/* Fired ~2 s after a successful network join to turn the LED off. */
+static void led_off_cb(uint8_t param)
+{
+    (void)param;
+    hivekit_led_set_pattern(HIVEKIT_LED_OFF);
+}
 
 /* ── Signal handler ───────────────────────────────────────────────────────── */
 
@@ -99,10 +133,11 @@ static bool hivekit_app_signal_handler(const ezb_app_signal_t *app_signal)
                 hivekit_led_set_pattern(HIVEKIT_LED_SOLID);
             }
         } else {
-            ESP_LOGW(TAG, "BDB init failed (status=0x%02x), retrying in 1s", status);
-            /* TODO (Phase 1): use alarm_timer or xTimerCreate for retry */
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            ezb_bdb_start_top_level_commissioning(EZB_BDB_MODE_INITIALIZATION);
+            ESP_LOGE(TAG, "BDB init failed (status=0x%02x) — restarting in 2s", status);
+            /* Matches reference: esp_restart() after a short scheduler-alarm delay.
+             * Using a scheduler alarm instead of vTaskDelay() so the Zigbee task
+             * is not blocked and the MAC layer can remain responsive during the wait. */
+            esp_zb_scheduler_alarm(restart_device_cb, 0, 2000);
         }
     } break;
 
@@ -115,17 +150,17 @@ static bool hivekit_app_signal_handler(const ezb_app_signal_t *app_signal)
                      ezb_nwk_get_panid(), ezb_nwk_get_current_channel(),
                      ezb_nwk_get_short_address());
             hivekit_led_set_pattern(HIVEKIT_LED_SOLID);
-            /* Delay then turn off — device goes to sleep in app loop */
-            vTaskDelay(pdMS_TO_TICKS(2000));
-            hivekit_led_set_pattern(HIVEKIT_LED_OFF);
+            /* Schedule LED-off 2 s from now via scheduler alarm so we do not
+             * block the Zigbee task with vTaskDelay(). */
+            esp_zb_scheduler_alarm(led_off_cb, 0, 2000);
         } else {
-            ESP_LOGW(TAG, "Network steering failed (status=0x%02x), retrying in 3s", status);
+            ESP_LOGW(TAG, "Network steering failed (status=0x%02x), scheduling retry in 3s", status);
             hivekit_led_set_pattern(HIVEKIT_LED_SLOW_BLINK);
-            /* Auto-retry: no button press needed for first pairing.
-             * Same UX as florianL21/zigbee-co2-sensor — device keeps
-             * trying until coordinator opens permit-join. */
-            vTaskDelay(pdMS_TO_TICKS(3000));
-            ezb_bdb_start_top_level_commissioning(EZB_BDB_MODE_NETWORK_STEERING);
+            /* Auto-retry via scheduler alarm instead of vTaskDelay().
+             * Scheduling on the Zigbee task timer means the MAC layer stays
+             * fully responsive during the 3 s window (can ACK beacons, send
+             * poll requests, respond to the trust centre). */
+            esp_zb_scheduler_alarm(retry_network_steering_cb, 0, 3000);
         }
     } break;
 
