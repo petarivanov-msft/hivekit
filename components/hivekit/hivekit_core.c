@@ -166,15 +166,11 @@ static bool hivekit_app_signal_handler(const ezb_app_signal_t *app_signal)
             ESP_LOGI(TAG, "Joined network: PAN 0x%04hx, ch %d, addr 0x%04hx",
                      ezb_nwk_get_panid(), ezb_nwk_get_current_channel(),
                      ezb_nwk_get_short_address());
-            /* Increase long-poll interval after join so the device only polls its
-             * parent every 180 s instead of the SDK default (~7 s). Combined with
-             * the 180 s keep-alive this matches the florianL21/zigbee-co2-sensor
-             * reference and prevents aggressive router-hopping on transient link
-             * blips. Uses ezb_zdo_pim_set_long_poll_interval (v2 ezb_ prefix) to
-             * match the rest of this file; fall back to esp_zb_zdo_pim_set_long_poll_interval
-             * if CI reports an unresolved symbol. */
-            ezb_zdo_pim_set_long_poll_interval(180000);
-            ESP_LOGI(TAG, "Long-poll interval set to 180000 ms");
+            /* Match long-poll cadence to keep-alive period so poll and beacon
+             * intervals stay in lockstep and the parent never declares the device
+             * dead on a transient blip. */
+            ezb_zdo_pim_set_long_poll_interval(CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS);
+            ESP_LOGI(TAG, "Long-poll interval set to %d ms", CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS);
             hivekit_led_set_pattern(HIVEKIT_LED_SOLID);
             /* Schedule LED-off 2 s from now via scheduler alarm so we do not
              * block the Zigbee task with vTaskDelay(). */

@@ -68,7 +68,7 @@ menu "HiveKit Configuration"
     config HIVEKIT_ZIGBEE_KEEP_ALIVE_MS
         int "Zigbee end-device keep-alive interval (ms)"
         default 180000
-        range 1000 600000
+        range 30000 600000
         help
             How often (in milliseconds) the end device polls its parent router
             to keep the link alive. The default 180 000 ms (3 min) matches the
