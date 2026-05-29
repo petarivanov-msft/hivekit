@@ -36,7 +36,7 @@
  *     esp_zigbee_config_t config = {
  *       .device_config = {
  *         .device_type = EZB_NWK_DEVICE_TYPE_ED, // End Device
- *         .zed_config  = { .ed_timeout = ED_AGING_TIMEOUT_64MIN, .keep_alive = 4000 },
+ *         .zed_config  = { .ed_timeout = ED_AGING_TIMEOUT_64MIN, .keep_alive = CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS },
  *       },
  *       .platform_config = {
  *         .storage_partition_name = "zb_storage",
@@ -68,7 +68,7 @@
         .install_code_policy = false, \
         .zed_config = { \
             .ed_timeout = EZB_NWK_ED_TIMEOUT_64MIN, \
-            .keep_alive = 4000, \
+            .keep_alive = CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS, \
         }, \
     }
 
@@ -140,6 +140,7 @@ static void zigbee_main_task(void *pvParameters)
     esp_zigbee_config_t config = HIVEKIT_ZIGBEE_DEFAULT_CONFIG();
 
     ESP_ERROR_CHECK(esp_zigbee_init(&config));
+    ESP_LOGI(TAG, "Keep-alive: %d ms", CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS);
 
     /* Init hivekit (registers signal handler, LED, etc.) */
     static const hivekit_config_t hk_cfg = {

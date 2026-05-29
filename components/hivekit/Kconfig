@@ -65,6 +65,20 @@ menu "HiveKit Configuration"
             single channel for faster cold-boot if your coordinator is fixed
             (e.g. channel 11 only = (1 << 11) = 0x00000800).
 
+    config HIVEKIT_ZIGBEE_KEEP_ALIVE_MS
+        int "Zigbee end-device keep-alive interval (ms)"
+        default 180000
+        range 1000 600000
+        help
+            How often (in milliseconds) the end device polls its parent router
+            to keep the link alive. The default 180 000 ms (3 min) matches the
+            florianL21/zigbee-co2-sensor reference and typical coordinator
+            expectations. A very short value (e.g. the old default of 4 000 ms)
+            causes aggressive re-joining on transient link blips because the
+            stack declares the parent dead before it recovers from congestion.
+            Combined with a matching long-poll interval set post-join, 180 000 ms
+            prevents unnecessary router-hopping.
+
     config HIVEKIT_BOARD_XIAO_C6_ANTENNA
         bool "Select on-PCB antenna on XIAO ESP32-C6 boot"
         default y
