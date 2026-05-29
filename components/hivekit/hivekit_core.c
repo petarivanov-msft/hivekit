@@ -52,7 +52,6 @@
 #include "esp_system.h"
 
 #include "esp_zigbee.h"
-#include "ezbee/scheduler.h"
 #include "ezbee/bdb.h"
 #include "ezbee/app_signals.h"
 #include "ezbee/nwk.h"
