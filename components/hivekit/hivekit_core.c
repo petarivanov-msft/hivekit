@@ -36,10 +36,12 @@
  *   EZB_NWK_SIGNAL_PERMIT_JOIN_STATUS       → ezbee/app_signals.h
  *   ESP_ZIGBEE_DEFAULT_CONFIG()             → esp_zigbee.h (macro, see example usage)
  *   ESP_ZIGBEE_STORAGE_PARTITION_NAME       → esp_zigbee.h / sdkconfig
- *   esp_zb_scheduler_alarm()               → ezbee/scheduler.h (v2 public API; v2 SDK kept
- *                                             esp_zb_* prefix for scheduler. If the build
- *                                             reports "undeclared", try including esp_zigbee.h
- *                                             instead or use the ezb_scheduler_alarm() variant.)
+ *   esp_zb_scheduler_alarm()               → compat/esp_zigbee_core.h (compat shim; declared
+ *                                             explicitly below because the header is gated on
+ *                                             CONFIG_ZB_SDK_1xx which we do not set. Symbols ARE
+ *                                             exported by libesp-zigbee.release.a in v2.)
+ *   ezb_nwk_set_keepalive_interval()       → ezbee/nwk.h (v2 replacement for the removed
+ *                                             ezb_zdo_pim_set_long_poll_interval)
  *   esp_restart()                          → esp_system.h
  */
 
@@ -63,6 +65,18 @@
 #include "ezbee/zcl/cluster/carbon_dioxide_measurement_desc.h"
 #include "ezbee/zcl/cluster/temperature_measurement_desc.h"
 #include "ezbee/zcl/cluster/rel_humidity_measurement_desc.h"
+
+/* ── esp_zb_scheduler_alarm shims ───────────────────────────────────────────
+ * These symbols are exported by libesp-zigbee (compat layer) in SDK v2 but
+ * their header declarations live in compat/esp_zigbee_core.h which requires
+ * CONFIG_ZB_SDK_1xx=y (v1 compat mode).  We do NOT enable v1 compat — we just
+ * forward-declare the prototypes here so the compiler can type-check the calls.
+ * Source of truth: nm libesp-zigbee-core.zed.release.a (esp32c6) shows both
+ * symbols as globally exported (T), confirmed against SDK main 2026-05-29.
+ */
+typedef void (*esp_zb_callback_t)(uint8_t param);
+void esp_zb_scheduler_alarm(esp_zb_callback_t cb, uint8_t param, uint32_t time);
+void esp_zb_scheduler_alarm_cancel(esp_zb_callback_t cb, uint8_t param);
 
 static const char *TAG = "hivekit_core";
 
@@ -168,7 +182,11 @@ static bool hivekit_app_signal_handler(const ezb_app_signal_t *app_signal)
             /* Match long-poll cadence to keep-alive period so poll and beacon
              * intervals stay in lockstep and the parent never declares the device
              * dead on a transient blip. */
-            ezb_zdo_pim_set_long_poll_interval(CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS);
+            /* ezb_zdo_pim_set_long_poll_interval() was removed in esp-zigbee-sdk v2.
+             * The v2 equivalent is ezb_nwk_set_keepalive_interval() (ezbee/nwk.h, already
+             * included).  The compiler hint "did you mean ezb_nwk_set_fast_poll_interval"
+             * points to the right family; the keepalive variant is the long-poll setter. */
+            ezb_nwk_set_keepalive_interval(CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS);
             ESP_LOGI(TAG, "Long-poll interval set to %d ms", CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS);
             hivekit_led_set_pattern(HIVEKIT_LED_SOLID);
             /* Schedule LED-off 2 s from now via scheduler alarm so we do not
