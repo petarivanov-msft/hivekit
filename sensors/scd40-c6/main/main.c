@@ -54,6 +54,7 @@
 
 #include "esp_zigbee.h"
 #include "hivekit.h"
+#include "hivekit_board.h"
 #include "sensor_scd40.h"
 
 /* ── Zigbee config helpers (not in SDK headers, defined per-project) ───────── */
@@ -181,6 +182,11 @@ static void zigbee_main_task(void *pvParameters)
 
 void app_main(void)
 {
+    /* Select on-PCB chip antenna — must be the very first action.
+     * Drives GPIO3=0 (RF amp enable) + GPIO14=0 (chip antenna).
+     * Guarded by CONFIG_HIVEKIT_BOARD_XIAO_C6_ANTENNA (default y). */
+    hivekit_board_xiao_c6_init_antenna();
+
     /* NVS is required for Zigbee NVS storage */
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {

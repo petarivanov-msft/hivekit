@@ -54,4 +54,20 @@ menu "HiveKit Configuration"
             Set to y if LED turns on when GPIO is HIGH.
             Set to n if LED turns on when GPIO is LOW (active LOW).
 
+
+    config HIVEKIT_BOARD_XIAO_C6_ANTENNA
+        bool "Select on-PCB antenna on XIAO ESP32-C6 boot"
+        default y
+        help
+            Drives GPIO3 LOW (RF amplifier enable) and GPIO14 LOW
+            (antenna select = PCB chip antenna) early in app_main(),
+            before NVS or the Zigbee stack are initialised.
+
+            The XIAO ESP32-C6 RF switch is not driven at power-on, which
+            leaves the antenna selection floating and degrades RF performance
+            by approximately 20-30 dB.  This option fixes that.
+
+            Disable only if you are using an external U.FL antenna — in that
+            case you must drive GPIO14 HIGH yourself.
+
 endmenu

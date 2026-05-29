@@ -6,6 +6,7 @@ idf_component_register(
         "hivekit_button.c"
         "hivekit_led.c"
         "hivekit_reporting.c"
+        "hivekit_board.c"
     INCLUDE_DIRS
         "include"
     REQUIRES
