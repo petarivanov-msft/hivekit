@@ -48,14 +48,9 @@ CONFIG_HIVEKIT_SCD40_SCL_GPIO=23
 # FreeRTOS
 CONFIG_FREERTOS_HZ=1000
 
-# ── Zigbee parent-selection robustness (experiment/sleep-enable) ─────────
-# Florian's working setup has this on. It enables the MAC-layer low-power
-# coordination path which (as a side-effect) extends macResponseWaitTime,
-# giving slow routers (Aqara E1 wall switches especially) more time to ACK
-# association requests. Without this, esp-zigbee-sdk 2.x's shortened scan
-# dwell time misses any router that takes >100ms to respond — which is
-# why the C6 only pairs when sitting right next to the coordinator.
-CONFIG_IEEE802154_SLEEP_ENABLE=y
+# Sleep mode intentionally disabled for v0.3.3-beta baseline.
+# Re-add CONFIG_IEEE802154_SLEEP_ENABLE + CONFIG_PM_ENABLE + esp_zb_sleep_enable()
+# together in a future change once joined-state stability is proven.
 
 # Disable Zigbee Green Power — frees scan budget, not used by Z2M anyway.
 CONFIG_ZB_ENABLE_ZGP=n
