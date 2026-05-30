@@ -1,0 +1,435 @@
+# HiveKit Release & Pages Deploy Workflow
+#
+# DUAL-CHANNEL PUBLISHING APPROACH
+# =================================
+# Two channels are served from GitHub Pages:
+#
+#   Stable  →  https://petarivanov-msft.github.io/hivekit/
+#              Triggered by: push of `v*` tags that are NOT pre-releases
+#              (pre-release = contains -alpha, -beta, or -rc)
+#
+#   Dev     →  https://petarivanov-msft.github.io/hivekit/dev/
+#              Triggered by: push to `dev` branch OR push of any pre-release tag
+#
+# DEV ASSET STRATEGY: Per-commit GitHub Pre-Release
+# ---------------------------------------------------
+# For the dev channel we create an ephemeral pre-release tag `dev-<shortsha>`
+# on the fly, upload the merged binary as a release asset, then update
+# manifest-scd40-c6-dev.json to reference that URL before deploying Pages.
+# This keeps the dev channel at a stable, downloadable asset URL (not
+# ephemeral artifacts) while avoiding branch-head ambiguity.
+#
+# CROSS-CHANNEL PAGES COHERENCE
+# --------------------------------
+# GitHub Pages has a single deployment target per repo. To avoid each
+# channel clobbering the other we:
+#   - Stable deploy: fetches the currently-deployed /dev/ subtree from the
+#     live Pages URL, merges it into the Pages artifact alongside the fresh
+#     stable root, then deploys.
+#   - Dev deploy: fetches the currently-deployed root (excluding /dev/) and
+#     merges it alongside the fresh /dev/ subtree.
+#   - If no prior deployment exists (first run), the missing side is empty.
+# This means each channel is idempotent and cross-channel safe.
+
+name: Release & Pages Deploy
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - dev
+
+permissions:
+  contents: write      # create releases, upload assets
+  pages: write         # deploy to GitHub Pages
+  id-token: write      # OIDC token for Pages
+
+# One concurrency group per channel — never cancel in-flight deploys
+concurrency:
+  group: pages-${{ (startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-alpha') && !contains(github.ref, '-beta') && !contains(github.ref, '-rc')) && 'stable' || 'dev' }}
+  cancel-in-progress: false
+
+env:
+  SENSOR: scd40-c6
+  SENSOR_PATH: sensors/scd40-c6
+  CHIP: esp32c6
+  # Merged binary offsets (verified against sensors/scd40-c6/partitions.csv):
+  #   bootloader  → 0x0000  (default ESP32-C6 bootloader offset)
+  #   part-table  → 0x8000  (NVS starts at 0x9000, so table at 0x8000)
+  #   factory app → 0x10000
+  BOOTLOADER_OFFSET: "0x0"
+  PARTITION_OFFSET: "0x8000"
+  APP_OFFSET: "0x10000"
+
+jobs:
+  # ------------------------------------------------------------------
+  # Determine which channel this run is for
+  # ------------------------------------------------------------------
+  channel:
+    name: Determine channel
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.detect.outputs.channel }}
+      version: ${{ steps.detect.outputs.version }}
+      is_stable: ${{ steps.detect.outputs.is_stable }}
+      is_dev: ${{ steps.detect.outputs.is_dev }}
+    steps:
+      - name: Detect channel and version
+        id: detect
+        run: |
+          REF="${GITHUB_REF}"
+          TAG="${GITHUB_REF_NAME}"
+
+          IS_STABLE=false
+          IS_DEV=false
+          CHANNEL=""
+          VERSION=""
+
+          if [[ "$REF" == refs/tags/v* ]]; then
+            # Tag push — check for pre-release markers
+            if echo "$TAG" | grep -qE '-(alpha|beta|rc)'; then
+              IS_DEV=true
+              CHANNEL=dev
+              VERSION="$TAG"
+            else
+              IS_STABLE=true
+              CHANNEL=stable
+              VERSION="$TAG"
+            fi
+          elif [[ "$REF" == refs/heads/dev ]]; then
+            IS_DEV=true
+            CHANNEL=dev
+            SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+            VERSION="dev-${SHORT_SHA}"
+          else
+            echo "Unexpected ref: $REF — skipping"
+            exit 1
+          fi
+
+          echo "channel=$CHANNEL"      >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION"      >> "$GITHUB_OUTPUT"
+          echo "is_stable=$IS_STABLE"  >> "$GITHUB_OUTPUT"
+          echo "is_dev=$IS_DEV"        >> "$GITHUB_OUTPUT"
+
+          echo "Channel: $CHANNEL | Version: $VERSION | Stable: $IS_STABLE | Dev: $IS_DEV"
+
+  # ------------------------------------------------------------------
+  # Build firmware (reuses same IDF action as build.yml)
+  # ------------------------------------------------------------------
+  build:
+    name: Build firmware (${{ needs.channel.outputs.version }})
+    needs: channel
+    runs-on: ubuntu-latest
+    outputs:
+      merged_bin: ${{ steps.names.outputs.merged_bin }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Compute artifact names
+        id: names
+        run: |
+          VERSION="${{ needs.channel.outputs.version }}"
+          MERGED="hivekit-${{ env.SENSOR }}-${VERSION}.bin"
+          echo "merged_bin=${MERGED}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}"   >> "$GITHUB_OUTPUT"
+
+      - name: Build with espressif/esp-idf-ci-action
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5
+          target: ${{ env.CHIP }}
+          path: ${{ env.SENSOR_PATH }}
+          command: idf.py build
+
+      - name: Merge binaries into single flashable .bin
+        run: |
+          VERSION="${{ needs.channel.outputs.version }}"
+          MERGED="hivekit-${{ env.SENSOR }}-${VERSION}.bin"
+
+          # esptool.py is bundled with ESP-IDF; activate the venv
+          source /opt/esp/idf/export.sh 2>/dev/null || source ~/.espressif/python_env/*/bin/activate 2>/dev/null || true
+
+          # Fallback: install via pip if not on path
+          if ! command -v esptool.py &>/dev/null; then
+            pip install esptool --quiet
+          fi
+
+          esptool.py --chip ${{ env.CHIP }} merge_bin \
+            -o "${MERGED}" \
+            ${{ env.BOOTLOADER_OFFSET }} ${{ env.SENSOR_PATH }}/build/bootloader/bootloader.bin \
+            ${{ env.PARTITION_OFFSET }}  ${{ env.SENSOR_PATH }}/build/partition_table/partition-table.bin \
+            ${{ env.APP_OFFSET }}        ${{ env.SENSOR_PATH }}/build/*.bin
+
+          if [ ! -f "${MERGED}" ]; then
+            echo "ERROR: merge_bin did not produce ${MERGED}" >&2
+            exit 1
+          fi
+          echo "Merged binary: $(ls -lh ${MERGED})"
+
+      - name: Upload merged bin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: merged-bin
+          path: hivekit-${{ env.SENSOR }}-${{ needs.channel.outputs.version }}.bin
+          retention-days: 7
+
+      - name: Upload individual firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-parts
+          path: |
+            ${{ env.SENSOR_PATH }}/build/bootloader/bootloader.bin
+            ${{ env.SENSOR_PATH }}/build/partition_table/partition-table.bin
+            ${{ env.SENSOR_PATH }}/build/*.bin
+            ${{ env.SENSOR_PATH }}/build/*.elf
+          retention-days: 7
+
+  # ------------------------------------------------------------------
+  # Publish GitHub Release + attach assets
+  # Stable tags → proper release; dev → pre-release with auto-tag
+  # ------------------------------------------------------------------
+  release:
+    name: Publish GitHub Release
+    needs: [channel, build]
+    runs-on: ubuntu-latest
+    outputs:
+      asset_url_base: ${{ steps.asset_url.outputs.base }}
+      dev_tag: ${{ steps.dev_tag.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download merged bin artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: merged-bin
+          path: dist/
+
+      - name: Download firmware parts artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware-parts
+          path: dist/parts/
+
+      - name: Create auto dev tag (dev channel only)
+        id: dev_tag
+        if: needs.channel.outputs.is_dev == 'true' && !startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION="${{ needs.channel.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${VERSION}" "${GITHUB_SHA}"
+          git push origin "${VERSION}"
+          echo "tag=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve release tag
+        id: rel_tag
+        run: |
+          if [[ "${{ needs.channel.outputs.is_stable }}" == "true" ]]; then
+            echo "tag=${{ needs.channel.outputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ needs.channel.outputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create/update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.channel.outputs.version }}"
+          TAG="${VERSION}"
+          MERGED_BIN="dist/hivekit-${{ env.SENSOR }}-${VERSION}.bin"
+          IS_STABLE="${{ needs.channel.outputs.is_stable }}"
+
+          if [[ "$IS_STABLE" == "true" ]]; then
+            PRERELEASE_FLAG=""
+            TITLE="HiveKit ${VERSION}"
+            NOTES="## HiveKit ${VERSION} — Stable Release
+
+            ### Firmware assets
+            - \`hivekit-${{ env.SENSOR }}-${VERSION}.bin\` — merged binary, flash at offset 0x0
+            - Individual bootloader / partition-table / app .bin files
+
+            ### Web flasher
+            Visit https://petarivanov-msft.github.io/hivekit/ to flash without a terminal.
+
+            ### Changelog
+            See commits between this and the previous release.
+            "
+          else
+            PRERELEASE_FLAG="--prerelease"
+            TITLE="HiveKit ${VERSION} (dev)"
+            NOTES="## HiveKit ${VERSION} — Dev Build
+
+            Auto-generated from \`dev\` branch commit ${GITHUB_SHA}.
+
+            Flash via dev channel: https://petarivanov-msft.github.io/hivekit/dev/
+
+            **Not for production use.**
+            "
+          fi
+
+          # Create release (fail if already exists for stable; for dev replace it)
+          if [[ "$IS_STABLE" == "true" ]]; then
+            gh release create "${TAG}" \
+              --title "${TITLE}" \
+              --notes "${NOTES}" \
+              ${PRERELEASE_FLAG} \
+              "${MERGED_BIN}" \
+              dist/parts/*.bin \
+              dist/parts/*.elf 2>/dev/null || \
+            gh release upload "${TAG}" "${MERGED_BIN}" dist/parts/*.bin dist/parts/*.elf --clobber
+          else
+            # For dev builds, delete and recreate to keep only the latest
+            gh release delete "${TAG}" --yes 2>/dev/null || true
+            gh release create "${TAG}" \
+              --title "${TITLE}" \
+              --notes "${NOTES}" \
+              --prerelease \
+              "${MERGED_BIN}" \
+              dist/parts/*.bin \
+              dist/parts/*.elf
+          fi
+
+      - name: Compute asset URL base
+        id: asset_url
+        run: |
+          VERSION="${{ needs.channel.outputs.version }}"
+          BASE="https://github.com/petarivanov-msft/hivekit/releases/download/${VERSION}"
+          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
+
+  # ------------------------------------------------------------------
+  # Deploy to GitHub Pages (handles cross-channel coherence)
+  # ------------------------------------------------------------------
+  deploy-pages:
+    name: Deploy to GitHub Pages (${{ needs.channel.outputs.channel }})
+    needs: [channel, build, release]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout (to get flasher/ sources)
+        uses: actions/checkout@v4
+
+      - name: Download merged bin artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: merged-bin
+          path: dist/
+
+      - name: Prepare Pages staging directory
+        run: mkdir -p _site _site/dev
+
+      - name: Fetch existing stable Pages content (for dev deploy, to avoid clobbering)
+        if: needs.channel.outputs.is_dev == 'true'
+        run: |
+          BASE_URL="https://petarivanov-msft.github.io/hivekit"
+          # Fetch key stable files; ignore errors if not yet deployed
+          FILES="index.html style.css manifest-scd40-c6.json assets/logo.svg assets/favicon.svg"
+          for f in $FILES; do
+            DIR=$(dirname "_site/$f")
+            mkdir -p "$DIR"
+            curl -sf "${BASE_URL}/${f}" -o "_site/${f}" 2>/dev/null && echo "Fetched: $f" || echo "Missing (not yet deployed): $f"
+          done
+
+      - name: Fetch existing dev Pages content (for stable deploy, to avoid clobbering)
+        if: needs.channel.outputs.is_stable == 'true'
+        run: |
+          BASE_URL="https://petarivanov-msft.github.io/hivekit/dev"
+          # Fetch key dev files; ignore errors if not yet deployed
+          FILES="index.html style.css manifest-scd40-c6-dev.json assets/logo.svg assets/favicon.svg"
+          for f in $FILES; do
+            DIR=$(dirname "_site/dev/$f")
+            mkdir -p "$DIR"
+            curl -sf "${BASE_URL}/${f}" -o "_site/dev/${f}" 2>/dev/null && echo "Fetched dev: $f" || echo "Missing dev (not yet deployed): $f"
+          done
+
+      - name: Substitute version placeholders and stage flasher (stable)
+        if: needs.channel.outputs.is_stable == 'true'
+        run: |
+          VERSION="${{ needs.channel.outputs.version }}"
+          ASSET_BASE="${{ needs.release.outputs.asset_url_base }}"
+
+          cp flasher/style.css _site/style.css
+          mkdir -p _site/assets
+          cp flasher/assets/logo.svg _site/assets/logo.svg
+          cp flasher/assets/favicon.svg _site/assets/favicon.svg
+
+          # Substitute placeholders in index.html
+          sed -e "s|__VERSION__|${VERSION}|g" \
+              -e "s|__CHANNEL__|stable|g" \
+              flasher/index.html > _site/index.html
+
+          # Substitute placeholders in stable manifest
+          sed -e "s|__VERSION__|${VERSION}|g" \
+              -e "s|__ASSET_BASE__|${ASSET_BASE}|g" \
+              flasher/manifest-scd40-c6.json > _site/manifest-scd40-c6.json
+
+          echo "Staged stable channel: version=${VERSION}"
+
+      - name: Substitute version placeholders and stage flasher (dev)
+        if: needs.channel.outputs.is_dev == 'true'
+        run: |
+          VERSION="${{ needs.channel.outputs.version }}"
+          ASSET_BASE="${{ needs.release.outputs.asset_url_base }}"
+
+          mkdir -p _site/dev/assets
+          cp flasher/style.css _site/dev/style.css
+          cp flasher/assets/logo.svg _site/dev/assets/logo.svg
+          cp flasher/assets/favicon.svg _site/dev/assets/favicon.svg
+
+          # Substitute placeholders in index.html for dev channel
+          sed -e "s|__VERSION__|${VERSION}|g" \
+              -e "s|__CHANNEL__|dev|g" \
+              flasher/index.html > _site/dev/index.html
+
+          # Substitute placeholders in dev manifest
+          sed -e "s|__VERSION__|${VERSION}|g" \
+              -e "s|__ASSET_BASE__|${ASSET_BASE}|g" \
+              flasher/manifest-scd40-c6-dev.json > _site/dev/manifest-scd40-c6-dev.json
+
+          echo "Staged dev channel: version=${VERSION}"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Smoke-check stable deployment
+        if: needs.channel.outputs.is_stable == 'true'
+        run: |
+          VERSION="${{ needs.channel.outputs.version }}"
+          echo "Waiting 30s for Pages CDN to propagate..."
+          sleep 30
+          URL="https://petarivanov-msft.github.io/hivekit/manifest-scd40-c6.json"
+          DEPLOYED_VER=$(curl -sf "${URL}" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])" 2>/dev/null)
+          if [[ "${DEPLOYED_VER}" != "${VERSION}" ]]; then
+            echo "ERROR: Expected version '${VERSION}' at ${URL}, got '${DEPLOYED_VER}'" >&2
+            exit 1
+          fi
+          echo "Smoke check passed: ${URL} → version=${DEPLOYED_VER}"
+
+      - name: Smoke-check dev deployment
+        if: needs.channel.outputs.is_dev == 'true'
+        run: |
+          VERSION="${{ needs.channel.outputs.version }}"
+          echo "Waiting 30s for Pages CDN to propagate..."
+          sleep 30
+          URL="https://petarivanov-msft.github.io/hivekit/dev/manifest-scd40-c6-dev.json"
+          DEPLOYED_VER=$(curl -sf "${URL}" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])" 2>/dev/null)
+          if [[ "${DEPLOYED_VER}" != "${VERSION}" ]]; then
+            echo "ERROR: Expected version '${VERSION}' at ${URL}, got '${DEPLOYED_VER}'" >&2
+            exit 1
+          fi
+          echo "Smoke check passed: ${URL} → version=${DEPLOYED_VER}"
