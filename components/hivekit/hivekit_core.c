@@ -663,3 +663,109 @@ esp_err_t hivekit_report_bme280(const hivekit_bme280_reading_t *reading)
 
     return ESP_OK;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * PIR device — Occupancy Sensing (ZCL cluster 0x0406)
+ *
+ * ZCL spec §4.8 "Occupancy Sensing Cluster"
+ * Cluster ID: 0x0406
+ * Attributes:
+ *   0x0000  Occupancy          bitmap8   bit 0: 1=occupied, 0=unoccupied
+ *   0x0001  OccupancySensorType enum8    0=PIR
+ *
+ * Z2M expose: binary property 'occupancy', values true/false
+ *
+ * Reporting model:
+ *   Event-driven (change-triggered), min-interval=0s so Z2M hears the change
+ *   immediately. Max-interval = keepalive interval (set in firmware, default 300s).
+ *
+ * NOTE on ezb_zha_create_occupancy_sensor():
+ *   If the esp-zigbee-sdk v2.x ZHA helper for occupancy exists, it handles
+ *   Basic + Identify + Occupancy cluster creation in one call (same pattern as
+ *   ezb_zha_create_temperature_sensor used by SHT40/BME280).
+ *   If the helper is not yet available in the installed SDK, fall back to manual
+ *   cluster composition (commented below). The build will tell you which applies.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+esp_err_t hivekit_create_pir_device(void)
+{
+    ESP_RETURN_ON_FALSE(s_cfg, ESP_ERR_INVALID_STATE, TAG, "hivekit not initialised");
+
+    const uint8_t ep_id = 1;
+
+    /* Create device descriptor */
+    ezb_af_device_desc_t dev_desc = ezb_af_create_device_desc();
+    ESP_RETURN_ON_FALSE(dev_desc, ESP_ERR_NO_MEM, TAG, "[pir] Failed to create device desc");
+
+    /* Use ZHA occupancy sensor helper (Basic + Identify + Occupancy Sensing).
+     * Source: esp-zigbee-sdk/components/esp-zigbee-lib/include/ezbee/zha.h
+     * URL: https://github.com/espressif/esp-zigbee-sdk
+     *
+     * Config sets OccupancySensorType = 0 (PIR) per ZCL spec §4.8.2.1.
+     * Occupancy attr initial value = 0 (unoccupied at boot).
+     */
+    ezb_zha_occupancy_sensor_config_t occ_cfg = EZB_ZHA_OCCUPANCY_SENSOR_CONFIG();
+    occ_cfg.occupancy_sensing_cfg.occupancy             = 0; /* unoccupied at boot */
+    occ_cfg.occupancy_sensing_cfg.sensor_type           = 0; /* PIR */
+    occ_cfg.occupancy_sensing_cfg.sensor_type_bitmap    = 0x01; /* PIR bit */
+
+    ezb_af_ep_desc_t ep_desc = ezb_zha_create_occupancy_sensor(ep_id, &occ_cfg);
+    ESP_RETURN_ON_FALSE(ep_desc, ESP_ERR_NO_MEM, TAG, "[pir] Failed to create endpoint desc");
+
+    /* Patch Basic cluster: manufacturer name + model ID */
+    ezb_zcl_cluster_desc_t basic_desc =
+        ezb_af_endpoint_get_cluster_desc(ep_desc,
+                                         EZB_ZCL_CLUSTER_ID_BASIC,
+                                         EZB_ZCL_CLUSTER_SERVER);
+    ezb_zcl_basic_cluster_desc_add_attr(basic_desc,
+                                        EZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID,
+                                        (void *)s_cfg->manufacturer_name);
+    ezb_zcl_basic_cluster_desc_add_attr(basic_desc,
+                                        EZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID,
+                                        (void *)s_cfg->model_identifier);
+    if (s_cfg->fw_version) {
+        ezb_zcl_basic_cluster_desc_add_attr(basic_desc,
+                                            EZB_ZCL_ATTR_BASIC_SW_BUILD_ID_ID,
+                                            (void *)s_cfg->fw_version);
+    }
+
+    /* Register the device */
+    ESP_RETURN_ON_ERROR(ezb_af_device_add_endpoint_desc(dev_desc, ep_desc),
+                        TAG, "[pir] Failed to add endpoint");
+    ESP_RETURN_ON_ERROR(ezb_af_device_desc_register(dev_desc),
+                        TAG, "[pir] Failed to register device");
+
+    return ESP_OK;
+}
+
+esp_err_t hivekit_report_pir(bool occupied)
+{
+    const uint8_t ep_id = 1;
+
+    /* ZCL Occupancy attribute: bitmap8, bit 0 = occupied.
+     * 0x01 = occupied, 0x00 = unoccupied.
+     * Source: ZCL spec §4.8.2.1.1 "Occupancy"
+     *
+     * Note: use uint8_t, not bool — ZCL wire format is 1-byte bitmap.
+     */
+    uint8_t occ_val = occupied ? 0x01u : 0x00u;
+
+    esp_zigbee_lock_acquire(portMAX_DELAY);
+
+    esp_err_t err = ezb_zcl_set_attr_value(ep_id,
+                        EZB_ZCL_CLUSTER_ID_OCCUPANCY_SENSING,
+                        EZB_ZCL_CLUSTER_SERVER,
+                        EZB_ZCL_ATTR_OCCUPANCY_SENSING_OCCUPANCY_ID,
+                        EZB_ZCL_STD_MANUF_CODE,
+                        &occ_val,
+                        false);
+
+    esp_zigbee_lock_release();
+
+    ESP_LOGI(TAG, "[pir] ZCL occupancy=%u (%s) err=%s",
+             occ_val,
+             occupied ? "occupied" : "unoccupied",
+             esp_err_to_name(err));
+
+    return err;
+}
