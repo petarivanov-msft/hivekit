@@ -130,10 +130,10 @@ static const char *TAG = "sensor_bme280";
 #define BME280_CTRL_HUM_OSRS_H1  0x01
 
 /* ctrl_meas (0xF4): osrs_t=010 (×2), osrs_p=101 (×16), mode=01 (forced) */
-/* bits: [7:5]=010, [4:2]=101, [1:0]=01 → 0b01001101 = 0x4D (force) */
-/* For sleep mode (bits[1:0]=00): 0b01001100 = 0x4C */
-#define BME280_CTRL_MEAS_FORCED  0x4D
-#define BME280_CTRL_MEAS_SLEEP   0x4C
+/* bits: [7:5]=010, [4:2]=101, [1:0]=01 → 0b01010101 = 0x55 (force) */
+/* For sleep mode (bits[1:0]=00): 0b01010100 = 0x54 */
+#define BME280_CTRL_MEAS_FORCED  0x55
+#define BME280_CTRL_MEAS_SLEEP   0x54
 
 /* config (0xF5): t_sb=000 (not used in forced mode), filter=100 (coeff 16), spi3w=0 */
 /* bits: [7:5]=000, [4:2]=100, [1:0]=00 → 0b00010000 = 0x10 */
@@ -253,8 +253,8 @@ static void parse_calib_hum(uint8_t h1, const uint8_t *hd)
     s_calib.dig_H1 = h1;
     s_calib.dig_H2 = (int16_t)((hd[1] << 8) | hd[0]);
     s_calib.dig_H3 = hd[2];
-    s_calib.dig_H4 = (int16_t)(((int16_t)hd[3] << 4) | (hd[4] & 0x0F));
-    s_calib.dig_H5 = (int16_t)(((int16_t)hd[5] << 4) | (hd[4] >> 4));
+    s_calib.dig_H4 = (int16_t)(((int16_t)(int8_t)hd[3] << 4) | (hd[4] & 0x0F));
+    s_calib.dig_H5 = (int16_t)(((int16_t)(int8_t)hd[5] << 4) | (hd[4] >> 4));
     s_calib.dig_H6 = (int8_t)hd[6];
 }
 
