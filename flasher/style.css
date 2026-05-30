@@ -30,9 +30,9 @@
   --banner-dev-text:  #856404;
   --banner-dev-border:#FECF47;
 
-  /* Status badge */
-  --badge-tested:   #16A34A;
-  --badge-untested: #D97706;
+  /* Status badge — AA contrast on light surface (WCAG 4.5:1) */
+  --badge-tested:   #15803D;
+  --badge-untested: #B45309;
 
   /* Install button override */
   --esp-tools-button-color: #0078D4;
@@ -288,6 +288,10 @@ esp-web-install-button::part(button):hover {
 }
 esp-web-install-button::part(button):active {
   transform: translateY(0);
+}
+esp-web-install-button::part(button):focus-visible {
+  outline: 3px solid #0078D4;
+  outline-offset: 2px;
 }
 
 /* ---------- Instructions panel ---------- */

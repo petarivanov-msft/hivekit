@@ -91,8 +91,8 @@ Full guide: [`sensors/scd40-c6/README.md`](sensors/scd40-c6/README.md)
 |---|---|---|
 | 0 — PoC | SCD40 on C6 pairs with Z2M, 3 sensor values appear | 🟡 Hardware validation pending |
 | 1 — MVP | `hivekit` lib, SCD40 firmware, CI, Z2M converter | 🔵 In progress |
+| 1 — Flasher | Web flasher live at [petarivanov-msft.github.io/hivekit/](https://petarivanov-msft.github.io/hivekit/), CI release pipeline, merged-bin assets | ✅ Done |
 | 2 — Catalogue | BME280, SHT40, PIR, reed switch; H2 support | ⚪ Planned |
-| 1 — Flasher | Web flasher live, CI release pipeline, merged-bin assets | ✅ Done |
 | 3 — OTA + polish | OTA, community traction | ⚪ Planned |
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the full breakdown.

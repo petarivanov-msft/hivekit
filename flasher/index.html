@@ -14,16 +14,17 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-  <!-- ESP Web Tools: pinned to major version ^10 -->
+  <!-- ESP Web Tools: pinned to tested version 10.2.1 -->
   <script
     type="module"
-    src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"
+    src="https://unpkg.com/esp-web-tools@10.2.1/dist/web/install-button.js?module"
   ></script>
 </head>
 <body>
 
   <!-- ===== DEV CHANNEL BANNER (shown only on /dev/ path) ===== -->
-  <div class="banner-dev" id="dev-banner" hidden>
+  <!-- role="status" so assistive tech announces it live when revealed by JS -->
+  <div class="banner-dev" id="dev-banner" hidden role="status">
     🧪 <strong>Dev channel</strong> — you're on a pre-release build.
     Bugs expected.
     <a href="https://petarivanov-msft.github.io/hivekit/">Switch to stable →</a>
@@ -58,6 +59,12 @@
       <p style="margin-top:12px; font-size:0.85rem; color:var(--muted)">
         Firefox and Safari do not support Web Serial. Mobile browsers are not supported.
       </p>
+      <!-- Fallback download link for browsers/devices without WebSerial -->
+      <p style="margin-top:12px; font-size:0.9rem;">
+        <a href="https://github.com/petarivanov-msft/hivekit/releases">
+          Download firmware instead →
+        </a>
+      </p>
     </div>
 
     <!-- Flasher card -->
@@ -68,7 +75,13 @@
       <div class="sensor-select-row">
         <label for="sensor-select">Sensor:</label>
         <select id="sensor-select" aria-describedby="sensor-desc">
-          <option value="scd40-c6" data-manifest="manifest-scd40-c6.json" data-tested="true">
+          <!--
+            data-manifest is substituted at deploy time by the CI pipeline
+            (sed s/__MANIFEST__/manifest-scd40-c6[-dev].json/).
+            If you add a new sensor option, you MUST also update the
+            __MANIFEST__ substitution in .github/workflows/release.yml.
+          -->
+          <option value="scd40-c6" data-manifest="__MANIFEST__" data-tested="true">
             SCD40 (XIAO ESP32-C6) — CO₂ + temp + humidity ★ Tested
           </option>
           <!-- Placeholder: uncomment when firmware exists
@@ -88,17 +101,18 @@
       </p>
 
       <!-- Single global install button -->
+      <!--
+        manifest="__MANIFEST__" is substituted by CI:
+          stable deploy  → manifest-scd40-c6.json
+          dev deploy     → manifest-scd40-c6-dev.json
+        The dropdown JS reads data-manifest from the selected option (also
+        substituted) and updates this attribute on sensor change.
+      -->
       <div class="install-area" id="install-area">
         <esp-web-install-button
           id="install-btn"
-          manifest="manifest-scd40-c6.json"
+          manifest="__MANIFEST__"
         >
-          <span slot="activate">
-            <!-- Fallback text if custom element fails to upgrade -->
-            <a href="https://github.com/petarivanov-msft/hivekit/releases">
-              Download firmware instead →
-            </a>
-          </span>
         </esp-web-install-button>
       </div>
     </section>
@@ -155,9 +169,19 @@
 
     // ----------------------------------------------------------------
     // Browser / mobile compatibility check
+    //
+    // Show the compat notice (and hide the install button) when EITHER:
+    //   - the browser lacks the Web Serial API (Firefox, Safari), OR
+    //   - the UA string indicates a mobile device, OR
+    //   - the viewport is small enough to be mobile (≤768px).
+    //
+    // Using OR (not AND) is intentional: a small-viewport desktop still
+    // lacks a physical USB port, and a mobile UA on a tablet deserves the
+    // notice even if the browser technically exposes WebSerial.
     // ----------------------------------------------------------------
     (function () {
-      const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+                       window.matchMedia('(max-width: 768px)').matches;
       const hasSerial = 'serial' in navigator;
       const notice = document.getElementById('compat-notice');
       const installArea = document.getElementById('install-area');
@@ -185,10 +209,16 @@
         // 'bme280-c6': { desc: 'Temp + humidity + pressure sensor.', tested: false }
       };
 
+      // Normalize data-tested: accepts data-tested="true" OR presence-only (data-tested="")
+      function isTestedOption(opt) {
+        return opt.dataset.tested === 'true' || ('tested' in opt.dataset && opt.dataset.tested === '');
+      }
+
       function updateSensor() {
         const opt = select.options[select.selectedIndex];
         const manifest = opt.dataset.manifest;
-        const tested = opt.dataset.tested === 'true';
+        // Use normalised helper — see isTestedOption above
+        const tested = isTestedOption(opt);
         const sensorId = opt.value;
 
         // Update install button manifest
