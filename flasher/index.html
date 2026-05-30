@@ -77,17 +77,18 @@
         <select id="sensor-select" aria-describedby="sensor-desc">
           <!--
             data-manifest is substituted at deploy time by the CI pipeline
-            (sed s/__MANIFEST__/manifest-scd40-c6[-dev].json/).
+            (sed s/__MANIFEST__/manifest-scd40-c6[-dev].json/ and
+            s/__MANIFEST_BUST__/version-or-sha/).
             If you add a new sensor option, you MUST also update the
             __MANIFEST__ substitution in .github/workflows/release.yml.
           -->
-          <option value="scd40-c6" data-manifest="__MANIFEST__" data-tested="true">
+          <option value="scd40-c6" data-manifest="__MANIFEST__?v=__MANIFEST_BUST__" data-tested="true">
             SCD40 (XIAO ESP32-C6) — CO₂ + temp + humidity ★ Tested
           </option>
-          <option value="bme280-c6" data-manifest="manifest-bme280-c6.json" data-tested="false">
+          <option value="bme280-c6" data-manifest="manifest-bme280-c6.json?v=__MANIFEST_BUST__" data-tested="false">
             BME280 (XIAO ESP32-C6) — temp + humidity + pressure ☆ Untested
           </option>
-          <option value="sht40-c6" data-manifest="manifest-sht40-c6.json" data-tested="false">
+          <option value="sht40-c6" data-manifest="manifest-sht40-c6.json?v=__MANIFEST_BUST__" data-tested="false">
             SHT40 (XIAO ESP32-C6) — temp + humidity ☆ Untested
           </option>
         </select>
@@ -103,9 +104,11 @@
 
       <!-- Single global install button -->
       <!--
-        manifest="__MANIFEST__" is substituted by CI:
-          stable deploy  → manifest-scd40-c6.json
-          dev deploy     → manifest-scd40-c6-dev.json
+        manifest="__MANIFEST__?v=__MANIFEST_BUST__" is substituted by CI:
+          stable deploy  → manifest-scd40-c6.json?v=vX.Y.Z
+          dev deploy     → manifest-scd40-c6-dev.json?v=dev-<shortsha>
+        The ?v= cache-bust query string ensures the browser always fetches the
+        latest manifest JSON regardless of GitHub Pages' max-age=600 caching.
         The dropdown JS reads data-manifest from the selected option (also
         substituted) and updates this attribute on sensor change.
       -->
@@ -117,7 +120,7 @@
         </div>
         <esp-web-install-button
           id="install-btn"
-          manifest="__MANIFEST__"
+          manifest="__MANIFEST__?v=__MANIFEST_BUST__"
         >
         </esp-web-install-button>
       </div>
