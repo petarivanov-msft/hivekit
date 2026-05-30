@@ -104,6 +104,13 @@ Also add an entry to the `sensorMeta` object in the inline `<script>`:
 }
 ```
 
+For untested sensors:
+- Use `data-tested="false"` (do **not** add `disabled` — the option should be selectable)
+- The badge updates automatically to “☆ Untested”
+- An amber warning banner (`#untested-warning`) is shown when an untested sensor is selected
+- The README in `sensors/<sensor-id>/` should have a clear **UNTESTED** notice
+- Change `data-tested="false"` to `"true"` once real-hardware verification is confirmed
+
 Change `data-tested="false"` to `"true"` once you've flashed and verified the
 sensor on real hardware with Zigbee2MQTT.
 
