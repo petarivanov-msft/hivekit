@@ -20,6 +20,7 @@
  *   ezb_app_signal_get_type()               → ezbee/app_signals.h
  *   ezb_app_signal_get_params()             → ezbee/app_signals.h
  *   ezb_app_signal_to_string()              → ezbee/app_signals.h
+ *   ezb_apsde_data_confirm_handler_register() → ezbee/aps.h
  *   ezb_aps_secur_enable_distributed_security() → ezbee/aps.h
  *   ezb_nwk_get_panid()                     → ezbee/nwk.h
  *   ezb_nwk_get_current_channel()           → ezbee/nwk.h
@@ -40,8 +41,6 @@
  *                                             explicitly below because the header is gated on
  *                                             CONFIG_ZB_SDK_1xx which we do not set. Symbols ARE
  *                                             exported by libesp-zigbee.release.a in v2.)
- *   ezb_nwk_set_keepalive_interval()       → ezbee/nwk.h (v2 replacement for the removed
- *                                             ezb_zdo_pim_set_long_poll_interval)
  *   esp_restart()                          → esp_system.h
  */
 
@@ -180,15 +179,8 @@ static bool hivekit_app_signal_handler(const ezb_app_signal_t *app_signal)
             ESP_LOGI(TAG, "Joined network: PAN 0x%04hx, ch %d, addr 0x%04hx",
                      ezb_nwk_get_panid(), ezb_nwk_get_current_channel(),
                      ezb_nwk_get_short_address());
-            /* Match long-poll cadence to keep-alive period so poll and beacon
-             * intervals stay in lockstep and the parent never declares the device
-             * dead on a transient blip. */
-            /* ezb_zdo_pim_set_long_poll_interval() was removed in esp-zigbee-sdk v2.
-             * The v2 equivalent is ezb_nwk_set_keepalive_interval() (ezbee/nwk.h, already
-             * included).  The compiler hint "did you mean ezb_nwk_set_fast_poll_interval"
-             * points to the right family; the keepalive variant is the long-poll setter. */
-            ezb_nwk_set_keepalive_interval(CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS);
-            ESP_LOGI(TAG, "Long-poll interval set to %d ms", CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS);
+            /* Routers do not poll a parent: long-poll / keep-alive cadence is
+             * a ZED concept and was removed in the ZED -> ZR conversion. */
             hivekit_led_set_pattern(HIVEKIT_LED_SOLID);
             /* Schedule LED-off 2 s from now via scheduler alarm so we do not
              * block the Zigbee task with vTaskDelay(). */
@@ -231,6 +223,41 @@ static bool hivekit_app_signal_handler(const ezb_app_signal_t *app_signal)
     return true; /* Handled */
 }
 
+/* ── APS data confirm handler ─────────────────────────────────────────────
+ * Defence in depth against silent TX failures.
+ *
+ * esp_zb_zcl_report_attr_cmd_req() returns ESP_OK as soon as the report is
+ * queued at the APS layer; the actual over-the-air outcome is reported
+ * asynchronously via the APSDE-DATA.confirm primitive. Without a registered
+ * confirm handler that primitive is dropped, so a route failure or NWK-layer
+ * retry exhaustion is invisible to firmware and to anyone reading the logs.
+ *
+ * Hooking it lets us at least log the failure with cluster id and status so
+ * it shows up alongside the original "ZCL report results" line in flight
+ * recorder traces. SOURCE: ezbee/aps.h — ezb_apsde_data_confirm_t.
+ */
+static void hivekit_aps_data_confirm_cb(const ezb_apsde_data_confirm_t *confirm)
+{
+    if (!confirm) {
+        return;
+    }
+    if (confirm->status != 0) {
+        ESP_LOGW(TAG,
+                 "APS TX failed: cluster=0x%04x ep=%u->%u status=0x%02x len=%u",
+                 (unsigned)confirm->cluster_id,
+                 (unsigned)confirm->src_endpoint,
+                 (unsigned)confirm->dst_endpoint,
+                 (unsigned)confirm->status,
+                 (unsigned)confirm->asdu_length);
+    } else {
+        ESP_LOGD(TAG,
+                 "APS TX ok: cluster=0x%04x ep=%u->%u",
+                 (unsigned)confirm->cluster_id,
+                 (unsigned)confirm->src_endpoint,
+                 (unsigned)confirm->dst_endpoint);
+    }
+}
+
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
 esp_err_t hivekit_init(const hivekit_config_t *cfg)
@@ -243,6 +270,11 @@ esp_err_t hivekit_init(const hivekit_config_t *cfg)
      * SOURCE: app_signals.h — ezb_app_signal_add_handler */
     ESP_RETURN_ON_ERROR(ezb_app_signal_add_handler(hivekit_app_signal_handler),
                         TAG, "Failed to register signal handler");
+
+    /* Register an APS data-confirm handler so silent over-the-air TX failures
+     * surface in the log instead of being swallowed.
+     * SOURCE: ezbee/aps.h — ezb_apsde_data_confirm_handler_register */
+    ezb_apsde_data_confirm_handler_register(hivekit_aps_data_confirm_cb);
 
     /* TODO (Phase 1): init LED driver here using espressif/led_indicator */
     /* For now, LED ops are stubs (see hivekit_led.c) */

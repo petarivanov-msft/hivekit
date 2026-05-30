@@ -1,4 +1,4 @@
-# Zigbee end-device defaults for HiveKit SHT40
+# Zigbee router defaults for HiveKit SHT40
 # Apply with: idf.py build (auto-merged with sdkconfig)
 
 # Target
@@ -13,10 +13,9 @@ CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
 
-# Zigbee role: End Device
+# Zigbee role: Router (mains-powered always-on, see PR #11)
 CONFIG_ZB_ENABLED=y
-CONFIG_ZB_ED_ROLE=y
-CONFIG_ZB_ZCZR_ROLE=n
+CONFIG_ZB_ZCZR=y
 
 # Zigbee NVS partitions (must match partitions.csv)
 CONFIG_ZB_NVRAM_PARTITION="zb_storage"

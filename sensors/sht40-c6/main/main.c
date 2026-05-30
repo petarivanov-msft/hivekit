@@ -47,13 +47,15 @@
 #define ESP_ZIGBEE_STORAGE_PARTITION_NAME "zb_storage"
 #endif
 
-#define HIVEKIT_ZED_CONFIG() \
+/* HiveKit sensors are USB-powered and always-on, so they MUST be Zigbee
+ * Routers (ZR), not End Devices (ZED). See sensors/scd40-c6/main/main.c
+ * for the full rationale (silent-TX symptom that motivated the conversion). */
+#define HIVEKIT_ZR_CONFIG() \
     { \
-        .device_type         = EZB_NWK_DEVICE_TYPE_END_DEVICE, \
+        .device_type         = EZB_NWK_DEVICE_TYPE_ROUTER, \
         .install_code_policy = false, \
-        .zed_config = { \
-            .ed_timeout = EZB_NWK_ED_TIMEOUT_64MIN, \
-            .keep_alive = CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS, \
+        .zczr_config = { \
+            .max_children = 10, \
         }, \
     }
 
@@ -67,7 +69,7 @@
 
 #define HIVEKIT_ZIGBEE_DEFAULT_CONFIG() \
     { \
-        .device_config   = HIVEKIT_ZED_CONFIG(), \
+        .device_config   = HIVEKIT_ZR_CONFIG(), \
         .platform_config = HIVEKIT_PLATFORM_CONFIG(), \
     }
 
@@ -133,7 +135,7 @@ static void zigbee_main_task(void *pvParameters)
     esp_zigbee_config_t config = HIVEKIT_ZIGBEE_DEFAULT_CONFIG();
 
     ESP_ERROR_CHECK(esp_zigbee_init(&config));
-    ESP_LOGI(TAG, "Keep-alive: %d ms", CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS);
+    ESP_LOGI(TAG, "Zigbee role: ROUTER (mains-powered, no parent polling)");
 
     static const hivekit_config_t hk_cfg = {
         .manufacturer_name = HIVEKIT_MANUFACTURER,
