@@ -333,10 +333,14 @@ esp_err_t hivekit_create_scd40_device(void)
     /* NOTE: CO2 MeasuredValue in ZCL is a single-precision float in range [0.0, 1.0]
      * where 1.0 = 1,000,000 ppm. So 400 ppm = 0.0004.
      * SOURCE: ezbee/zcl/cluster/carbon_dioxide_measurement_desc.h */
+    /* ZCL range validation compares min/max against every attribute write; NaN comparisons
+     * always return false, causing every CO2 write to be rejected with ESP_FAIL (co2=0x1).
+     * Use concrete sentinel values (0 ppm / 10000 ppm) so the validator passes.
+     * Regression fix — mirrors main-branch fix in commit d968895 (2026-05-18). */
     ezb_zcl_carbon_dioxide_measurement_cluster_server_config_t co2_cfg = {
-        .measured_value     = 0.0f / 0.0f, /* NaN = unknown */
-        .min_measured_value = 0.0f / 0.0f,
-        .max_measured_value = 0.0f / 0.0f,
+        .measured_value     = 0.0f / 0.0f, /* NaN = unknown, overwritten on first sensor read */
+        .min_measured_value = 0.0f,         /* 0 ppm */
+        .max_measured_value = 0.01f,        /* 10000 ppm (ZCL CO2 float: 1.0 = 1,000,000 ppm) */
     };
     /* SOURCE: ezbee/zcl/cluster/carbon_dioxide_measurement_desc.h */
     ezb_zcl_cluster_desc_t co2_cluster =
