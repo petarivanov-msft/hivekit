@@ -490,6 +490,7 @@ jobs:
           # __MANIFEST__ default → scd40-c6 stable manifest (JS updates on sensor change)
           sed -e "s|__VERSION__|${VERSION}|g" \
               -e "s|__CHANNEL__|stable|g" \
+              -e "s|__MANIFEST_BUST__|${VERSION}|g" \
               -e "s|__MANIFEST__|manifest-scd40-c6.json|g" \
               flasher/index.html > _site/index.html
 
@@ -543,6 +544,7 @@ jobs:
           # Substitute placeholders in index.html for dev channel
           sed -e "s|__VERSION__|${DEV_DISPLAY_VERSION}|g" \
               -e "s|__CHANNEL__|dev|g" \
+              -e "s|__MANIFEST_BUST__|${DEV_DISPLAY_VERSION}|g" \
               -e "s|__MANIFEST__|manifest-scd40-c6-dev.json|g" \
               flasher/index.html > _site/dev/index.html
 
