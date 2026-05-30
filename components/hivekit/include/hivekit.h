@@ -52,6 +52,14 @@ typedef struct hivekit_scd40_reading_s {
 } hivekit_scd40_reading_t;
 
 /**
+ * @brief SHT40 measurements: temperature and humidity.
+ */
+typedef struct hivekit_sht40_reading_s {
+    float temperature_c; /*!< Temperature in degrees Celsius (-40 to +125 for SHT40) */
+    float humidity_pct;  /*!< Relative humidity in percent (0–100) */
+} hivekit_sht40_reading_t;
+
+/**
  * @brief BME280 measurements: temperature, humidity, and pressure.
  */
 typedef struct hivekit_bme280_reading_s {
@@ -110,6 +118,34 @@ void hivekit_set_signal_handler_cb(void (*cb)(uint16_t signal_type, const void *
 esp_err_t hivekit_create_scd40_device(void);
 
 /* ── Cluster / endpoint setup (BME280) ───────────────────────────────────── */
+
+/* ── Cluster / endpoint setup (SHT40) ───────────────────────────────────── */
+
+/**
+ * @brief Create the SHT40 Zigbee device: Basic + Identify + Temp + Humidity clusters.
+ *
+ * Registers endpoint 1 with the ZHA HA profile (0x0104).
+ * Clusters:
+ *   0x0402 msTemperatureMeasurement  (int16, ×100 °C)
+ *   0x0405 msRelativeHumidity        (uint16, ×100 %)
+ *
+ * @return ESP_OK on success.
+ */
+esp_err_t hivekit_create_sht40_device(void);
+
+/**
+ * @brief Push SHT40 readings into the Zigbee attribute cache.
+ *
+ * Updates two attributes:
+ *   - Temperature Measurement MeasuredValue (0x0402, attr 0x0000): int16, ×100
+ *   - Relative Humidity MeasuredValue       (0x0405, attr 0x0000): uint16, ×100
+ *
+ * Must acquire esp_zigbee_lock before calling.
+ *
+ * @param[in] reading Sensor measurements.
+ * @return ESP_OK on success.
+ */
+esp_err_t hivekit_report_sht40(const hivekit_sht40_reading_t *reading);
 
 /**
  * @brief Create the BME280 Zigbee device: Basic + Identify + Temp + Humidity + Pressure clusters.
