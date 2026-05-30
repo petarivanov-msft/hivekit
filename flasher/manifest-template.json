@@ -7,7 +7,7 @@
       "chipFamily": "ESP32-C6",
       "parts": [
         {
-          "path": "__ASSET_BASE__/hivekit-__SENSOR__-__VERSION__.bin",
+          "path": "firmware/hivekit-__SENSOR__-__VERSION__.bin",
           "offset": 0
         }
       ]

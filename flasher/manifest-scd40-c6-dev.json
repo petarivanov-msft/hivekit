@@ -7,7 +7,7 @@
       "chipFamily": "ESP32-C6",
       "parts": [
         {
-          "path": "__ASSET_BASE__/hivekit-scd40-c6-dev-latest.bin",
+          "path": "firmware/hivekit-scd40-c6-dev-latest.bin",
           "offset": 0
         }
       ]
