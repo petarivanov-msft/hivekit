@@ -74,6 +74,16 @@ static const char *TAG = "hivekit_main";
 #define HIVEKIT_MODEL        "hk-pir-c6"
 #define HIVEKIT_FW_VERSION   "1.0.0-phase2-untested"
 
+/* Fallback defaults — overridden by Kconfig (sdkconfig.h) when present.
+ * These mirror the defaults in Kconfig.projbuild and sdkconfig.defaults.
+ * They guard against sdkconfig generation edge cases in CI. */
+#ifndef CONFIG_HIVEKIT_PIR_GPIO
+#define CONFIG_HIVEKIT_PIR_GPIO          2
+#endif
+#ifndef CONFIG_HIVEKIT_PIR_ACTIVE_HIGH
+#define CONFIG_HIVEKIT_PIR_ACTIVE_HIGH   1
+#endif
+
 /* ── Zigbee main task ─────────────────────────────────────────────────────── */
 
 static void zigbee_main_task(void *pvParameters)
