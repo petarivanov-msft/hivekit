@@ -371,3 +371,34 @@ footer a:hover { color: var(--accent); }
 @media (max-width: 360px) {
   .hero h1 { font-size: 1.5rem; }
 }
+
+/* ---------- Untested sensor warning ---------- */
+.untested-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: #fff8e1;
+  border: 1.5px solid #f59e0b;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: 0.9rem;
+  color: #92400e;
+  line-height: 1.45;
+}
+.untested-warning a {
+  color: #b45309;
+  text-decoration: underline;
+}
+.untested-warning a:hover {
+  color: #78350f;
+}
+@media (prefers-color-scheme: dark) {
+  .untested-warning {
+    background: #2d1b00;
+    border-color: #d97706;
+    color: #fcd34d;
+  }
+  .untested-warning a { color: #fbbf24; }
+  .untested-warning a:hover { color: #fde68a; }
+}
