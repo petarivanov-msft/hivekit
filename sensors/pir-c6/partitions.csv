@@ -1,0 +1,21 @@
+# Partition table for HiveKit PIR firmware
+# XIAO ESP32-C6 — 4MB flash
+# Identical layout to SCD40/SHT40/BME280 (same hardware, same partitioning requirements)
+#
+# Layout:
+#   nvs          — standard NVS (app config)
+#   phy_init     — PHY calibration data
+#   factory      — main application
+#   zb_storage   — Zigbee NVS (network credentials, neighbour table)
+#   zb_fct       — Zigbee factory data (required by esp-zigbee-lib v2)
+#   ota_0        — OTA slot 0 (reserved for Phase 3)
+#   ota_1        — OTA slot 1 (reserved for Phase 3)
+
+# Name,     Type,   SubType,    Offset,   Size,  Flags
+nvs,        data,   nvs,        0x9000,   0x6000,
+phy_init,   data,   phy,        0xf000,   0x1000,
+factory,    app,    factory,    0x10000,  1200K,
+zb_storage, data,   nvs,        0x140000, 16K,
+zb_fct,     data,   0x81,       0x144000, 4K,
+ota_0,      app,    ota_0,      0x150000, 1200K,
+ota_1,      app,    ota_1,      0x290000, 1200K,
