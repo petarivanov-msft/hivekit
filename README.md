@@ -36,6 +36,18 @@ The gap this fills:
 
 ---
 
+## Quickstart for users (no terminal)
+
+**Flash a HiveKit sensor from your browser — no tools needed:**
+
+👉 **[https://petarivanov-msft.github.io/hivekit/](https://petarivanov-msft.github.io/hivekit/)**
+
+Open in Chrome, Edge, or Opera on a **desktop**. Plug in your XIAO ESP32-C6, pick your sensor from the dropdown, and click **Install**. Done in ~60 seconds.
+
+> 🧪 **Dev/pre-release builds:** [https://petarivanov-msft.github.io/hivekit/dev/](https://petarivanov-msft.github.io/hivekit/dev/)
+
+---
+
 ## Quickstart for developers
 
 ### SCD40 on XIAO ESP32-C6
@@ -79,8 +91,9 @@ Full guide: [`sensors/scd40-c6/README.md`](sensors/scd40-c6/README.md)
 |---|---|---|
 | 0 — PoC | SCD40 on C6 pairs with Z2M, 3 sensor values appear | 🟡 Hardware validation pending |
 | 1 — MVP | `hivekit` lib, SCD40 firmware, CI, Z2M converter | 🔵 In progress |
+| 1 — Flasher | Web flasher live at [petarivanov-msft.github.io/hivekit/](https://petarivanov-msft.github.io/hivekit/), CI release pipeline, merged-bin assets | ✅ Done |
 | 2 — Catalogue | BME280, SHT40, PIR, reed switch; H2 support | ⚪ Planned |
-| 3 — OTA + polish | Web flasher, OTA, community | ⚪ Planned |
+| 3 — OTA + polish | OTA, community traction | ⚪ Planned |
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the full breakdown.
 
@@ -97,7 +110,7 @@ hivekit/
 ├── converters/
 │   └── hivekit-scd40.js  # Z2M external converter (drop into external_converters/)
 ├── docs/                 # Architecture, plans, specs
-├── flasher/              # Web flasher (Phase 1 — not yet built)
+├── flasher/              # Web flasher (live at https://petarivanov-msft.github.io/hivekit/)
 └── .github/workflows/    # CI — builds all firmware targets
 ```
 

@@ -5,12 +5,12 @@ Mirrors `~/.openclaw/workspace/projects/c6-zigbee/mvp-roadmap.md` (research arti
 ## Phase 0 — PoC (in progress)
 Hardware validation only. See [`phase0-flash-plan.md`](phase0-flash-plan.md).
 
-## Phase 1 — MVP
+## Phase 1 — MVP ✅
 - `components/hivekit/` shared library (init, clusters, reporting, sleep, OTA)
 - `sensors/scd40-c6/` first sensor firmware
 - `converters/hivekit-scd40.js` Z2M converter
-- `flasher/` GitHub Pages web flasher
-- GitHub Actions CI (build + release)
+- `flasher/` GitHub Pages web flasher — **live at https://petarivanov-msft.github.io/hivekit/**
+- GitHub Actions CI (build + release pipeline, merged-bin, dual-channel Pages)
 - Docs site
 
 ## Phase 2 — Catalogue

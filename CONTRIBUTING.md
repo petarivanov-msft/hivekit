@@ -16,7 +16,16 @@ experiment/foo  ── merge ──▶  dev  ── tag vX.Y.Z-beta.N (Pre-relea
                               main  ── tag vX.Y.Z (Latest)
 ```
 
-## Cutting a pre-release
+## Adding new flasher assets
+
+> **WARNING: keep in sync with `.github/workflows/release.yml` deploy steps.**
+>
+> If you add a new HTML file, JS module, CSS file, or other static asset to
+> `flasher/`, you MUST also add it to the explicit file-copy lists in the
+> "Substitute version placeholders and stage flasher (stable)" and
+> "Substitute version placeholders and stage flasher (dev)" steps of
+> `release.yml`. Otherwise the new asset will not be deployed to GitHub Pages.
+
 
 ```bash
 # after merging experiment/foo into dev
