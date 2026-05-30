@@ -1,6 +1,6 @@
 # Phase 0 — Flash Plan (for tomorrow)
 
-**Goal**: Confirm Petar's existing ESP32-C6 + SCD40 hardware works as a Zigbee end-device with Z2M, using florianL21's pre-built firmware as the validation tool.
+**Goal**: Confirm the existing ESP32-C6 + SCD40 hardware works as a Zigbee end-device with Z2M, using florianL21's pre-built firmware as the validation tool.
 
 This is **hardware validation only** — we're not writing any code in Phase 0. If it works, we know the hardware is good and we can move to Phase 1 (porting to a Z2M-native HiveKit firmware).
 

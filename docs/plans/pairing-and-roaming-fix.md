@@ -3,7 +3,7 @@
 > Branch: `dev`  ·  Created: 2026-05-29  ·  Status: planning
 > Reference framework: `florianL21/zigbee-co2-sensor` (mirrored at `/home/windows/code/hivekit-ref`)
 
-## Goal (Petar's voice)
+## Goal
 
 > "The main issue was pairing and also hopping on other routers. The repo we used as a framework was fine. We need to keep it in V2 so keep that in mind."
 
@@ -15,7 +15,7 @@ In plain terms: the SCD40-C6 firmware as it stands today fails to pair reliably 
 - **No ESP-IDF version bump.** Keep v5.5.x. If IDF turns out to be the cause, that's its own future task with its own justification.
 - **No changes to Zigbee2MQTT** (converter, coordinator config, channel, permit-join behaviour) unless a task below produces hard evidence that the firmware is innocent.
 - **No new sensor work** (SCD40 readings, LED patterns, OTA, button UX). This plan is firmware Zigbee networking only.
-- **No release tag.** That happens once Petar confirms reliable pair-and-roam on real hardware.
+- **No release tag.** That happens once the device is confirmed to pair and roam reliably on real hardware.
 
 ## Assumptions
 
@@ -23,7 +23,7 @@ In plain terms: the SCD40-C6 firmware as it stands today fails to pair reliably 
 - The Path B Phase-3 redo (manual endpoint construction for non-temperature sensors) is **deferred** — it is unrelated to pairing/roaming and the current `ezb_zha_create_temperature_sensor()` + cluster-patch approach is good enough for SCD40 to attempt to join.
 - We believe (from `STATE.md`) that as of commit `cf0669d` the firmware did pair and report once on Monday morning before regressing. So the byte sequence on the air is "good enough" once we *do* join — the open issues are: getting the join, and surviving network topology changes (router hops).
 - Hardware: Seeed XIAO ESP32-C6. The XIAO C6 ships with both an on-PCB chip antenna and a U.FL connector and uses a GPIO-driven RF switch (GPIO3 = power, GPIO14 = select). **The current firmware never touches these pins.** This is almost certainly hurting RSSI and is a prime suspect for both poor pairing and poor roaming. (Reference does call `configure_internal_antenna()` for the same chip.)
-- Petar flashes and tests each candidate himself; each task must give him a single-commit "flash this, expected vs observed" check that takes ≤5 min on the bench.
+- Flashing and testing each candidate on real hardware; each task must give a single-commit "flash this, expected vs observed" check that takes ≤5 min on the bench.
 
 ## Diff inventory — what differs from reference (relevant subset)
 
@@ -43,11 +43,11 @@ Surveyed `components/hivekit/hivekit_core.c`, `sensors/scd40-c6/main/main.c`, `s
 | J | BDB comm status cast | Uses `signal_struct->esp_err_status == ESP_OK` (top-level err) | Casts `ezb_app_signal_get_params(app_signal)` to `ezb_bdb_comm_status_t *` and compares to `EZB_BDB_STATUS_SUCCESS`. If the v2 param layout differs from our header assumption the success branch never runs → factory-new device never starts steering |
 | K | Power-down behaviour | Has `configure_internal_antenna` + matches PM | Has nothing special on cold boot |
 
-We do NOT yet know which one of A–K is the dominant cause. The reference's v1 SDK shadows several of these issues (TC link key is automatic, channel scan and PM defaults are different), so a direct line-by-line transplant isn't possible. The tasks below isolate each suspect so Petar can A/B them on real hardware in a single flash cycle.
+We do NOT yet know which one of A–K is the dominant cause. The reference's v1 SDK shadows several of these issues (TC link key is automatic, channel scan and PM defaults are different), so a direct line-by-line transplant isn't possible. The tasks below isolate each suspect for individual A/B testing on real hardware in a single flash cycle.
 
 ## Tasks
 
-> All tasks land on `dev`. Each is independently flashable. Acceptance criteria are written as a single "flash → observe → record" loop Petar can run in ≤5 min. Each task ends with an entry appended to `docs/plans/pairing-and-roaming-results.md` (controller will create the file on first commit).
+> All tasks land on `dev`. Each is independently flashable. Acceptance criteria are written as a single "flash → observe → record" loop that takes ≤5 min. Each task ends with an entry appended to `docs/plans/pairing-and-roaming-results.md` (controller will create the file on first commit).
 
 ### Task 1 — XIAO C6 internal-antenna selection (HIGH priority, smallest blast radius)
 
@@ -102,7 +102,7 @@ We do NOT yet know which one of A–K is the dominant cause. The reference's v1 
 **Acceptance criteria:**
 1. Build succeeds.
 2. Boot log shows `Primary channel mask: 0x07FFF800 (ch 11-26)`.
-3. **Bench check:** On a Z2M coordinator pinned to **channel 20** (Petar temporarily reconfigures Z2M, or uses a sniffer to confirm), device pairs within 60 s. Today it does not pair at all unless Z2M is on ch11.
+3. **Bench check:** On a Z2M coordinator pinned to **channel 20** (temporarily reconfigure Z2M, or use a sniffer to confirm), device pairs within 60 s. Today it does not pair at all unless Z2M is on ch11.
 
 **Files:**
 - EDIT `sensors/scd40-c6/main/main.c`
@@ -131,7 +131,7 @@ We do NOT yet know which one of A–K is the dominant cause. The reference's v1 
 
 ### Task 5 — End-device keep-alive and post-join long-poll tuning
 
-**Why:** Suspects B + C + D. With `keep_alive=4000` the ED polls its parent every 4 s and any miss starts an orphan-rejoin clock. With no `set_long_poll_interval` call after join, the SDK default short-poll runs forever, burning bandwidth on a slow router and giving the trust centre many opportunities to flag the device as misbehaving. Together they cause "joins fine on the bench, dies on the kitchen counter" behaviour — exactly Petar's "doesn't hop on other routers, just goes silent" report. A router with marginal RSSI cannot satisfy a 4 s keep-alive but easily satisfies a 180 s one.
+**Why:** Suspects B + C + D. With `keep_alive=4000` the ED polls its parent every 4 s and any miss starts an orphan-rejoin clock. With no `set_long_poll_interval` call after join, the SDK default short-poll runs forever, burning bandwidth on a slow router and giving the trust centre many opportunities to flag the device as misbehaving. Together they cause "joins fine on the bench, dies on the kitchen counter" behaviour — the reported "doesn't hop on other routers, just goes silent" symptom. A router with marginal RSSI cannot satisfy a 4 s keep-alive but easily satisfies a 180 s one.
 
 **Change:**
 - Bump `keep_alive` in `HIVEKIT_ZED_CONFIG()` from `4000` to `180000` (180 s, matching reference).
@@ -151,7 +151,7 @@ We do NOT yet know which one of A–K is the dominant cause. The reference's v1 
 
 ### Task 6 — Coherent sleep/PM configuration (rip out the half-config)
 
-**Why:** Suspect H. `CONFIG_IEEE802154_SLEEP_ENABLE=y` without `CONFIG_PM_ENABLE` and without `esp_zb_sleep_enable(true)` is an unsupported combination. Best case it is a no-op; worst case the MAC partially shuts down during scans (missed beacons) or between polls (missed router-issued route updates) — both of which present as the symptoms Petar described.
+**Why:** Suspect H. `CONFIG_IEEE802154_SLEEP_ENABLE=y` without `CONFIG_PM_ENABLE` and without `esp_zb_sleep_enable(true)` is an unsupported combination. Best case it is a no-op; worst case the MAC partially shuts down during scans (missed beacons) or between polls (missed router-issued route updates) — both of which match the reported symptoms.
 
 **Change:**
 - **Default branch (do this in Task 6):** remove `CONFIG_IEEE802154_SLEEP_ENABLE=y` and `CONFIG_ZB_ENABLE_ZGP=n` from `sdkconfig.defaults`. Add a comment block explaining we will revisit power management as a separate epic *after* pair-and-roam is solid.
@@ -180,7 +180,7 @@ We do NOT yet know which one of A–K is the dominant cause. The reference's v1 
 
 **Acceptance criteria:**
 1. Two new docs (or one + recovered patch) exist under `docs/research/`.
-2. Recommendation clearly states one of: "no change needed (evidence: ...)", "change needed — see Task 7b below", or "cannot determine, escalate to Petar (questions: ...)".
+2. Recommendation clearly states one of: "no change needed (evidence: ...)", "change needed — see Task 7b below", or "cannot determine, needs further investigation (questions: ...)".
 3. Commit message: `docs(research): TC link key handling under esp-zigbee-sdk v2`.
 
 **Files:**
@@ -191,7 +191,7 @@ We do NOT yet know which one of A–K is the dominant cause. The reference's v1 
 
 ## Suggested execution order
 
-Petar should test in this order — each task is independently flashable but earlier tasks are higher-value-per-flash:
+Test in this order — each task is independently flashable but earlier tasks are higher-value-per-flash:
 
 1. **Task 1** (antenna) — biggest single suspect, smallest change, easiest revert
 2. **Task 4** (BDB status parsing) — could be a "factory-new never steers" bug, would explain the worst cases
@@ -205,10 +205,10 @@ Petar should test in this order — each task is independently flashable but ear
 
 - **Risk:** Task 4 is theoretical — we don't yet have proof the BDB status cast is wrong. If the SDK header confirms the current cast is correct, the task becomes a no-op + documentation update. That's still useful (eliminates a suspect on paper), so the task stays as written.
 - **Risk:** Task 5 references `zb_zdo_pim_set_long_poll_interval` from the v1 SDK. The v2 equivalent may have a different name or may have been folded into `esp_zb_*` instead of `ezb_*`. The task allows a documented-TODO fallback so it doesn't block the rest.
-- **Risk:** Task 6 may surface an entirely separate power-related regression once the half-sleep config is removed (e.g. CPU pegged at 160 MHz, brown-out near 5 V supply). Petar should be ready to power the bench device from a known-good USB source.
+- **Risk:** Task 6 may surface an entirely separate power-related regression once the half-sleep config is removed (e.g. CPU pegged at 160 MHz, brown-out near 5 V supply). Power the bench device from a known-good USB source during this test.
 - **Unknown:** Whether Z2M's coordinator firmware version matters. Out of scope for this plan, but if Tasks 1–7 do not produce reliable behaviour, the next investigation should compare Z2M coordinator FW versions used during the Monday-morning working build vs today.
-- **Unknown:** Whether the SCD40-C6 board has an external antenna actually attached. If Petar fitted a U.FL antenna later, Task 1's default of "internal antenna" is wrong. The Kconfig flag handles this but Petar must confirm hardware state.
+- **Unknown:** Whether the SCD40-C6 board has an external antenna actually attached. If a U.FL antenna was fitted later, Task 1's default of "internal antenna" is wrong. The Kconfig flag handles this — confirm hardware state before flashing Task 1.
 
 ## Open questions
 
-- None blocking. All assumptions above are documented; Petar can correct them when reviewing the plan.
+- None blocking. All assumptions above are documented; correct them when reviewing the plan.

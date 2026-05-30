@@ -70,13 +70,13 @@ Z2M will match this against `zigbeeModel` in `converters/hivekit-scd40.js`.
 - [x] Understand `esp_zigbee.h` wrapper + `esp_zigbee_launch_mainloop()` pattern
 - [x] Create scaffold: `components/hivekit/`, `sensors/scd40-c6/`, converters, CI
 
-### Day 2 — Phase 0 success (Petar's task)
+### Day 2 — Phase 0 success
 - Flash florianL21 firmware via web flasher
 - Confirm SCD40 hardware works with Z2M
 - Note down what Z2M interview looks like
 - Flag any I²C or pairing issues
 
-### Day 3 — Build environment setup (Petar's task)
+### Day 3 — Build environment setup
 - Install ESP-IDF v5.5.x on dev machine
 - Run `idf.py build` on `sensors/scd40-c6/`
 - Fix any toolchain/dependency issues
@@ -94,7 +94,7 @@ Z2M will match this against `zigbeeModel` in `converters/hivekit-scd40.js`.
 - Test BOOT button (3s pairing, 10s reset)
 - Test LED patterns
 - Verify CI builds pass on GitHub
-- Update README with actual build/flash steps verified by Petar
+- Update README with actual build/flash steps verified on hardware
 
 ---
 
@@ -135,7 +135,7 @@ Or use the web flasher (Phase 1 deliverable, not yet built).
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| ESP-Zigbee-SDK v2.x CO2 cluster API differs from what we scaffold | Medium | All API calls in code have `// SOURCE:` comments with the exact header URL; Petar must verify at build time |
+| ESP-Zigbee-SDK v2.x CO2 cluster API differs from what we scaffold | Medium | All API calls in code have `// SOURCE:` comments with the exact header URL; verify at build time |
 | Interview failure ("cannot get node descriptor") | Medium | Known C6 issue; keep device <1m from coordinator; ensure primary channels set correctly |
 | Sensirion SCD4x component name wrong on registry | Low | idf_component.yml has a TODO comment; verify with `idf.py build` |
 | Button component changed API in v4.x | Low | All calls documented; check `espressif/button` changelog if build fails |
