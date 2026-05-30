@@ -1,0 +1,27 @@
+## IDF Component Manager Manifest File
+## See: https://docs.espressif.com/projects/idf-component-manager/en/latest/
+
+dependencies:
+  idf:
+    version: ">=5.5"
+
+  # Zigbee stack (Apache-2.0). v2.x uses Espressif's own stack.
+  # SOURCE: https://github.com/espressif/esp-zigbee-sdk
+  espressif/esp-zigbee-lib:
+    version: "~2.0.0"
+
+  # Button driver — for BOOT button (pairing / factory reset)
+  # SOURCE: https://components.espressif.com/components/espressif/button
+  espressif/button:
+    version: "^4.0.0"
+
+  # LED indicator — for status LED state machine
+  # SOURCE: https://components.espressif.com/components/espressif/led_indicator
+  espressif/led_indicator:
+    version: "^0.9.0"
+
+  # NOTE: BME280 driver is hand-written in sensor_bme280.c
+  # No external managed component needed — all I²C transactions are native
+  # ESP-IDF i2c_master APIs + Bosch reference compensation algorithm.
+  # This keeps the build self-contained and avoids component registry drift.
+  # See sensor_bme280.c for full reasoning and citation list.

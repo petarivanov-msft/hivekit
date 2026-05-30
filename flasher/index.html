@@ -84,11 +84,9 @@
           <option value="scd40-c6" data-manifest="__MANIFEST__" data-tested="true">
             SCD40 (XIAO ESP32-C6) — CO₂ + temp + humidity ★ Tested
           </option>
-          <!-- Placeholder: uncomment when firmware exists
-          <option value="bme280-c6" data-manifest="manifest-bme280-c6.json" data-tested="false" disabled>
+          <option value="bme280-c6" data-manifest="manifest-bme280-c6.json" data-tested="false">
             BME280 (XIAO ESP32-C6) — temp + humidity + pressure ☆ Untested
           </option>
-          -->
         </select>
         <span class="sensor-status tested" id="sensor-badge" aria-label="Sensor status: Tested">
           ★ Tested
@@ -109,6 +107,11 @@
         substituted) and updates this attribute on sensor change.
       -->
       <div class="install-area" id="install-area">
+        <!-- Untested sensor warning — shown/hidden by JS when an untested sensor is selected -->
+        <div class="untested-warning" id="untested-warning" hidden role="alert">
+          ⚠️ This firmware is community-untested. If you flash it, please
+          <a href="https://github.com/petarivanov-msft/hivekit/issues" target="_blank" rel="noopener">report your results in the issue tracker</a>.
+        </div>
         <esp-web-install-button
           id="install-btn"
           manifest="__MANIFEST__"
@@ -204,9 +207,11 @@
         'scd40-c6': {
           desc: 'CO₂ concentration, temperature, and humidity sensor. Pairs natively with Zigbee2MQTT.',
           tested: true
+        },
+        'bme280-c6': {
+          desc: 'Atmospheric pressure, temperature, and humidity sensor. Pairs natively with Zigbee2MQTT.',
+          tested: false
         }
-        // Add more sensors here as they become available:
-        // 'bme280-c6': { desc: 'Temp + humidity + pressure sensor.', tested: false }
       };
 
       // Normalize data-tested: accepts data-tested="true" OR presence-only (data-tested="")
@@ -243,6 +248,12 @@
         const descEl = document.getElementById('sensor-desc');
         if (descEl && sensorMeta[sensorId]) {
           descEl.textContent = sensorMeta[sensorId].desc;
+        }
+
+        // Show/hide untested warning banner
+        const untestedWarning = document.getElementById('untested-warning');
+        if (untestedWarning) {
+          untestedWarning.hidden = tested;
         }
       }
 

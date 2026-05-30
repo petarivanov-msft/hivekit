@@ -1,0 +1,16 @@
+{
+  "name": "HiveKit BME280 (XIAO ESP32-C6)",
+  "version": "__VERSION__",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-C6",
+      "parts": [
+        {
+          "path": "__ASSET_BASE__/hivekit-bme280-c6-__VERSION__.bin",
+          "offset": 0
+        }
+      ]
+    }
+  ]
+}

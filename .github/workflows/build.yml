@@ -40,6 +40,31 @@ jobs:
           retention-days: 30
 
   # Placeholder for future sensors — add one job per sensor target
-  # build-bme280-c6:
-  #   name: Build bme280-c6 (ESP32-C6, IDF v5.5)
-  #   ...
+  build-bme280-c6:
+    name: Build bme280-c6 (ESP32-C6, IDF v5.5)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build with espressif/esp-idf-ci-action
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5
+          target: esp32c6
+          path: sensors/bme280-c6
+          command: idf.py build
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hivekit-bme280-c6-firmware
+          path: |
+            sensors/bme280-c6/build/*.bin
+            sensors/bme280-c6/build/*.elf
+            sensors/bme280-c6/build/bootloader/bootloader.bin
+            sensors/bme280-c6/build/partition_table/partition-table.bin
+          retention-days: 30

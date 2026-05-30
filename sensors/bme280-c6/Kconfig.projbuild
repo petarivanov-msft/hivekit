@@ -1,0 +1,39 @@
+# menu "HiveKit BME280 Sensor Configuration"
+# This file provides sensor-specific Kconfig options for bme280-c6.
+# The shared hivekit component's Kconfig is at components/hivekit/Kconfig.
+
+menu "HiveKit BME280 Sensor"
+
+    config HIVEKIT_BME280_SDA_GPIO
+        int "I²C SDA GPIO"
+        default 22
+        help
+            GPIO number for I²C SDA line.
+            On XIAO ESP32-C6 this is GPIO22 (shared with SCD40 pinout).
+
+    config HIVEKIT_BME280_SCL_GPIO
+        int "I²C SCL GPIO"
+        default 23
+        help
+            GPIO number for I²C SCL line.
+            On XIAO ESP32-C6 this is GPIO23 (shared with SCD40 pinout).
+
+    config HIVEKIT_BME280_I2C_ADDR
+        hex "BME280 I²C address"
+        default 0x76
+        help
+            7-bit I²C address of the BME280 sensor.
+            0x76 when SDO pin tied to GND (most breakout boards default).
+            0x77 when SDO pin tied to VDDIO (3.3V).
+            Reference: BME280 datasheet §6.2, Table 13.
+
+    config HIVEKIT_BME280_MEASUREMENT_INTERVAL_MS
+        int "Sensor measurement interval (ms)"
+        default 30000
+        help
+            How often to trigger a forced-mode measurement and report to Zigbee.
+            Default 30000 = 30 seconds (matches SCD40 debug interval).
+            Minimum recommended: 5000 (5s). Indoor use: 30000-300000.
+            Bosch recommendation for weather/indoor: one measurement per minute.
+
+endmenu
