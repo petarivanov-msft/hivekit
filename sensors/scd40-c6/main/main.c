@@ -36,7 +36,7 @@
  *     esp_zigbee_config_t config = {
  *       .device_config = {
  *         .device_type = EZB_NWK_DEVICE_TYPE_ED, // End Device
- *         .zed_config  = { .ed_timeout = ED_AGING_TIMEOUT_64MIN, .keep_alive = 4000 },
+ *         .zed_config  = { .ed_timeout = ED_AGING_TIMEOUT_64MIN, .keep_alive = CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS },
  *       },
  *       .platform_config = {
  *         .storage_partition_name = "zb_storage",
@@ -54,6 +54,7 @@
 
 #include "esp_zigbee.h"
 #include "hivekit.h"
+#include "hivekit_board.h"
 #include "sensor_scd40.h"
 
 /* ── Zigbee config helpers (not in SDK headers, defined per-project) ───────── */
@@ -67,7 +68,7 @@
         .install_code_policy = false, \
         .zed_config = { \
             .ed_timeout = EZB_NWK_ED_TIMEOUT_64MIN, \
-            .keep_alive = 4000, \
+            .keep_alive = CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS, \
         }, \
     }
 
@@ -139,6 +140,7 @@ static void zigbee_main_task(void *pvParameters)
     esp_zigbee_config_t config = HIVEKIT_ZIGBEE_DEFAULT_CONFIG();
 
     ESP_ERROR_CHECK(esp_zigbee_init(&config));
+    ESP_LOGI(TAG, "Keep-alive: %d ms", CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS);
 
     /* Init hivekit (registers signal handler, LED, etc.) */
     static const hivekit_config_t hk_cfg = {
@@ -158,12 +160,13 @@ static void zigbee_main_task(void *pvParameters)
      *    network (Zigbee2MQTT, ZHA, deCONZ all use centralized TC).
      *    v2 SDK defaults to distributed=true which silently rejects Z2M beacons
      *    with NWK_NO_NETWORKS (status=0x03).
-     * 2) Scan all 11 Zigbee channels (11-26) on both primary and secondary masks. */
+     * 2) Scan all Zigbee channels 11-26 in a single primary mask call. */
     ezb_aps_secur_enable_distributed_security(false);
-    /* Primary: just channel 11 (the most common Z2M default) for fast first-join.
-     * Secondary: all channels 11-26 as fallback if the user runs a non-standard channel. */
-    ezb_bdb_set_primary_channel_set(0x00000800);   /* ch 11 only */
-    ezb_bdb_set_secondary_channel_set(0x07FFF800); /* ch 11-26 */
+    /* Match florianL21/zigbee-co2-sensor reference (ESP_ZB_TRANSCEIVER_ALL_CHANNELS_MASK).
+     * v2 SDK has no convenience macro; literal mask covers 802.15.4 channels 11-26. */
+    ezb_bdb_set_primary_channel_set(CONFIG_HIVEKIT_ZIGBEE_PRIMARY_CHANNEL_MASK);
+    ESP_LOGI(TAG, "Primary channel mask: 0x%08x (ch 11-26 by default)",
+             CONFIG_HIVEKIT_ZIGBEE_PRIMARY_CHANNEL_MASK);
 
     /* Start Zigbee stack — autostart=false so we control commissioning
      * via the signal handler (EZB_ZDO_SIGNAL_SKIP_STARTUP) */
@@ -181,6 +184,11 @@ static void zigbee_main_task(void *pvParameters)
 
 void app_main(void)
 {
+    /* Select on-PCB chip antenna — must be the very first action.
+     * Drives GPIO3=0 (RF amp enable) + GPIO14=0 (chip antenna).
+     * Guarded by CONFIG_HIVEKIT_BOARD_XIAO_C6_ANTENNA (default y). */
+    ESP_ERROR_CHECK(hivekit_board_xiao_c6_init_antenna());
+
     /* NVS is required for Zigbee NVS storage */
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {

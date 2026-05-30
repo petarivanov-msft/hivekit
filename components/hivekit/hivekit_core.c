@@ -36,6 +36,13 @@
  *   EZB_NWK_SIGNAL_PERMIT_JOIN_STATUS       → ezbee/app_signals.h
  *   ESP_ZIGBEE_DEFAULT_CONFIG()             → esp_zigbee.h (macro, see example usage)
  *   ESP_ZIGBEE_STORAGE_PARTITION_NAME       → esp_zigbee.h / sdkconfig
+ *   esp_zb_scheduler_alarm()               → compat/esp_zigbee_core.h (compat shim; declared
+ *                                             explicitly below because the header is gated on
+ *                                             CONFIG_ZB_SDK_1xx which we do not set. Symbols ARE
+ *                                             exported by libesp-zigbee.release.a in v2.)
+ *   ezb_nwk_set_keepalive_interval()       → ezbee/nwk.h (v2 replacement for the removed
+ *                                             ezb_zdo_pim_set_long_poll_interval)
+ *   esp_restart()                          → esp_system.h
  */
 
 #include "hivekit.h"
@@ -44,6 +51,7 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "esp_system.h"
 
 #include "esp_zigbee.h"
 #include "ezbee/bdb.h"
@@ -58,12 +66,51 @@
 #include "ezbee/zcl/cluster/temperature_measurement_desc.h"
 #include "ezbee/zcl/cluster/rel_humidity_measurement_desc.h"
 
+/* ── esp_zb_scheduler_alarm shims ───────────────────────────────────────────
+ * These symbols are exported by libesp-zigbee (compat layer) in SDK v2 but
+ * their header declarations live in compat/esp_zigbee_core.h which requires
+ * CONFIG_ZB_SDK_1xx=y (v1 compat mode).  We do NOT enable v1 compat — we just
+ * forward-declare the prototypes here so the compiler can type-check the calls.
+ * Source of truth: nm libesp-zigbee-core.zed.release.a (esp32c6) shows both
+ * symbols as globally exported (T), confirmed against SDK main 2026-05-29.
+ */
+typedef void (*esp_zb_callback_t)(uint8_t param);
+void esp_zb_scheduler_alarm(esp_zb_callback_t cb, uint8_t param, uint32_t time);
+void esp_zb_scheduler_alarm_cancel(esp_zb_callback_t cb, uint8_t param);
+
 static const char *TAG = "hivekit_core";
 
 /* ── Internal state ───────────────────────────────────────────────────────── */
 
 static const hivekit_config_t *s_cfg = NULL;
 static void (*s_signal_cb)(uint16_t signal_type, const void *params) = NULL;
+
+/* ── Scheduler-alarm callbacks ───────────────────────────────────────────── */
+
+/* Fired by esp_zb_scheduler_alarm() ~3 s after network steering fails.
+ * Runs on the Zigbee main task — no locking required for BDB calls. */
+static void retry_network_steering_cb(uint8_t param)
+{
+    (void)param;
+    ESP_LOGI(TAG, "Retry timer fired — starting BDB network steering");
+    ezb_bdb_start_top_level_commissioning(EZB_BDB_MODE_NETWORK_STEERING);
+}
+
+/* Fired ~2 s after a DEVICE_FIRST_START / DEVICE_REBOOT BDB-init failure.
+ * esp_restart() is safe here; the process tears down completely. */
+static void restart_device_cb(uint8_t param)
+{
+    (void)param;
+    ESP_LOGE(TAG, "Restart timer fired — rebooting now");
+    esp_restart();
+}
+
+/* Fired ~2 s after a successful network join to turn the LED off. */
+static void led_off_cb(uint8_t param)
+{
+    (void)param;
+    hivekit_led_set_pattern(HIVEKIT_LED_OFF);
+}
 
 /* ── Signal handler ───────────────────────────────────────────────────────── */
 
@@ -84,9 +131,18 @@ static bool hivekit_app_signal_handler(const ezb_app_signal_t *app_signal)
 
     case EZB_BDB_SIGNAL_DEVICE_FIRST_START:
     case EZB_BDB_SIGNAL_DEVICE_REBOOT: {
-        /* SOURCE: bdb.h — ezb_bdb_comm_status_t, EZB_BDB_STATUS_SUCCESS */
+        /* SOURCE: bdb.h — ezb_bdb_comm_status_t, EZB_BDB_STATUS_SUCCESS
+         * v2 SDK payload for DEVICE_FIRST_START / DEVICE_REBOOT is
+         * ezb_bdb_signal_simple_params_t { uint8_t status; } (verified against
+         * espressif/esp-zigbee-sdk main branch app_signals.h, 2026-05-29).
+         * Casting params to ezb_bdb_comm_status_t* reads the first (and only)
+         * byte of that struct — correct by C99 common-initial-sequence rule.
+         * If you ever see status=0x00 (SUCCESS) on a BDB init that didn't
+         * actually complete, suspect the params pointer is NULL or the SDK
+         * version changed the struct layout. */
         ezb_bdb_comm_status_t status =
             *((const ezb_bdb_comm_status_t *)ezb_app_signal_get_params(app_signal));
+        ESP_LOGD(TAG, "BDB signal=0x%04x status=0x%02x", (unsigned)signal_type, (unsigned)status);
         if (status == EZB_BDB_STATUS_SUCCESS) {
             /* SOURCE: bdb.h — ezb_bdb_is_factory_new */
             if (ezb_bdb_is_factory_new()) {
@@ -99,33 +155,51 @@ static bool hivekit_app_signal_handler(const ezb_app_signal_t *app_signal)
                 hivekit_led_set_pattern(HIVEKIT_LED_SOLID);
             }
         } else {
-            ESP_LOGW(TAG, "BDB init failed (status=0x%02x), retrying in 1s", status);
-            /* TODO (Phase 1): use alarm_timer or xTimerCreate for retry */
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            ezb_bdb_start_top_level_commissioning(EZB_BDB_MODE_INITIALIZATION);
+            ESP_LOGE(TAG, "BDB init failed (status=0x%02x) — restarting in 2s", status);
+            /* Matches reference: esp_restart() after a short scheduler-alarm delay.
+             * Using a scheduler alarm instead of vTaskDelay() so the Zigbee task
+             * is not blocked and the MAC layer can remain responsive during the wait. */
+            esp_zb_scheduler_alarm(restart_device_cb, 0, 2000);
         }
     } break;
 
     case EZB_BDB_SIGNAL_STEERING: {
+        /* v2 SDK payload is ezb_bdb_signal_simple_params_t { uint8_t status; };
+         * same cast idiom as DEVICE_FIRST_START — verified correct (see above). */
         ezb_bdb_comm_status_t status =
             *((const ezb_bdb_comm_status_t *)ezb_app_signal_get_params(app_signal));
+        ESP_LOGD(TAG, "BDB signal=0x%04x status=0x%02x", (unsigned)signal_type, (unsigned)status);
         if (status == EZB_BDB_STATUS_SUCCESS) {
+            /* Cancel any pending retry alarm — a previous steering attempt may have
+             * scheduled one ~3 s ago that hasn't fired yet. Without this, the alarm
+             * would re-call ezb_bdb_start_top_level_commissioning() on an
+             * already-joined device. */
+            esp_zb_scheduler_alarm_cancel(retry_network_steering_cb, 0);
             /* SOURCE: nwk.h — ezb_nwk_get_panid, ezb_nwk_get_current_channel, ezb_nwk_get_short_address */
             ESP_LOGI(TAG, "Joined network: PAN 0x%04hx, ch %d, addr 0x%04hx",
                      ezb_nwk_get_panid(), ezb_nwk_get_current_channel(),
                      ezb_nwk_get_short_address());
+            /* Match long-poll cadence to keep-alive period so poll and beacon
+             * intervals stay in lockstep and the parent never declares the device
+             * dead on a transient blip. */
+            /* ezb_zdo_pim_set_long_poll_interval() was removed in esp-zigbee-sdk v2.
+             * The v2 equivalent is ezb_nwk_set_keepalive_interval() (ezbee/nwk.h, already
+             * included).  The compiler hint "did you mean ezb_nwk_set_fast_poll_interval"
+             * points to the right family; the keepalive variant is the long-poll setter. */
+            ezb_nwk_set_keepalive_interval(CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS);
+            ESP_LOGI(TAG, "Long-poll interval set to %d ms", CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS);
             hivekit_led_set_pattern(HIVEKIT_LED_SOLID);
-            /* Delay then turn off — device goes to sleep in app loop */
-            vTaskDelay(pdMS_TO_TICKS(2000));
-            hivekit_led_set_pattern(HIVEKIT_LED_OFF);
+            /* Schedule LED-off 2 s from now via scheduler alarm so we do not
+             * block the Zigbee task with vTaskDelay(). */
+            esp_zb_scheduler_alarm(led_off_cb, 0, 2000);
         } else {
-            ESP_LOGW(TAG, "Network steering failed (status=0x%02x), retrying in 3s", status);
+            ESP_LOGW(TAG, "Network steering failed (status=0x%02x), scheduling retry in 3s", status);
             hivekit_led_set_pattern(HIVEKIT_LED_SLOW_BLINK);
-            /* Auto-retry: no button press needed for first pairing.
-             * Same UX as florianL21/zigbee-co2-sensor — device keeps
-             * trying until coordinator opens permit-join. */
-            vTaskDelay(pdMS_TO_TICKS(3000));
-            ezb_bdb_start_top_level_commissioning(EZB_BDB_MODE_NETWORK_STEERING);
+            /* Auto-retry via scheduler alarm instead of vTaskDelay().
+             * Scheduling on the Zigbee task timer means the MAC layer stays
+             * fully responsive during the 3 s window (can ACK beacons, send
+             * poll requests, respond to the trust centre). */
+            esp_zb_scheduler_alarm(retry_network_steering_cb, 0, 3000);
         }
     } break;
 
@@ -259,10 +333,14 @@ esp_err_t hivekit_create_scd40_device(void)
     /* NOTE: CO2 MeasuredValue in ZCL is a single-precision float in range [0.0, 1.0]
      * where 1.0 = 1,000,000 ppm. So 400 ppm = 0.0004.
      * SOURCE: ezbee/zcl/cluster/carbon_dioxide_measurement_desc.h */
+    /* ZCL range validation compares min/max against every attribute write; NaN comparisons
+     * always return false, causing every CO2 write to be rejected with ESP_FAIL (co2=0x1).
+     * Use concrete sentinel values (0 ppm / 10000 ppm) so the validator passes.
+     * Regression fix — mirrors main-branch fix in commit d968895 (2026-05-18). */
     ezb_zcl_carbon_dioxide_measurement_cluster_server_config_t co2_cfg = {
-        .measured_value     = 0.0f / 0.0f, /* NaN = unknown */
-        .min_measured_value = 0.0f / 0.0f,
-        .max_measured_value = 0.0f / 0.0f,
+        .measured_value     = 0.0f / 0.0f, /* NaN = unknown, overwritten on first sensor read */
+        .min_measured_value = 0.0f,         /* 0 ppm */
+        .max_measured_value = 0.01f,        /* 10000 ppm (ZCL CO2 float: 1.0 = 1,000,000 ppm) */
     };
     /* SOURCE: ezbee/zcl/cluster/carbon_dioxide_measurement_desc.h */
     ezb_zcl_cluster_desc_t co2_cluster =

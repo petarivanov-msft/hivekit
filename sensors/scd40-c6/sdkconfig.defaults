@@ -47,3 +47,10 @@ CONFIG_HIVEKIT_SCD40_SCL_GPIO=23
 
 # FreeRTOS
 CONFIG_FREERTOS_HZ=1000
+
+# Sleep mode intentionally disabled for v0.3.3-beta baseline.
+# Re-add CONFIG_IEEE802154_SLEEP_ENABLE + CONFIG_PM_ENABLE + esp_zb_sleep_enable()
+# together in a future change once joined-state stability is proven.
+
+# Disable Zigbee Green Power — frees scan budget, not used by Z2M anyway.
+CONFIG_ZB_ENABLE_ZGP=n
