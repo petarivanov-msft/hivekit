@@ -1,0 +1,40 @@
+# menu "HiveKit SHT40 Sensor Configuration"
+# This file provides sensor-specific Kconfig options for sht40-c6.
+# The shared hivekit component's Kconfig is at components/hivekit/Kconfig.
+
+menu "HiveKit SHT40 Sensor"
+
+    config HIVEKIT_SHT40_SDA_GPIO
+        int "I²C SDA GPIO"
+        default 22
+        help
+            GPIO number for I²C SDA line.
+            On XIAO ESP32-C6 this is GPIO22 (shared with SCD40/BME280 pinout).
+
+    config HIVEKIT_SHT40_SCL_GPIO
+        int "I²C SCL GPIO"
+        default 23
+        help
+            GPIO number for I²C SCL line.
+            On XIAO ESP32-C6 this is GPIO23 (shared with SCD40/BME280 pinout).
+
+    config HIVEKIT_SHT40_I2C_ADDR
+        hex "SHT40 I²C address"
+        default 0x44
+        help
+            7-bit I²C address of the SHT40 sensor.
+            0x44 — SHT40-AD1B (default for most breakout boards).
+            0x45 — SHT40-BD1B alternate variant.
+            0x46 — SHT40-BD1B second alternate variant.
+            Reference: SHT40 datasheet §2.1.
+
+    config HIVEKIT_SHT40_MEASUREMENT_INTERVAL_MS
+        int "Sensor measurement interval (ms)"
+        default 30000
+        help
+            How often to trigger a high-precision measurement and report to Zigbee.
+            Default 30000 = 30 seconds (matches SCD40/BME280 interval).
+            Minimum recommended: 5000 (5s). Indoor use: 30000-300000.
+            The SHT40 has no minimum interval restriction at high precision.
+
+endmenu
