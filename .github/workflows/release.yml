@@ -64,7 +64,7 @@ env:
   APP_OFFSET: "0x10000"
   # Space-separated list of sensor IDs — drives loops in release and smoke-check steps.
   # Add new sensors here; download-artifact steps must be updated in parallel.
-  SENSORS: "scd40-c6 bme280-c6 sht40-c6"
+  SENSORS: "scd40-c6 bme280-c6 sht40-c6 pir-c6"
 
 jobs:
   # ------------------------------------------------------------------
@@ -134,7 +134,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sensor: [scd40-c6, bme280-c6, sht40-c6]
+        sensor: [scd40-c6, bme280-c6, sht40-c6, pir-c6]
     outputs:
       # Only one matrix cell's output is used downstream; both cells upload
       # their merged bin as separate named artifacts.
@@ -279,6 +279,18 @@ jobs:
           name: firmware-parts-sht40-c6
           path: dist/parts/sht40-c6/
 
+      - name: Download merged bin artifact (pir-c6)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: merged-bin-pir-c6
+          path: dist/
+
+      - name: Download firmware parts artifact (pir-c6)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: firmware-parts-pir-c6
+          path: dist/parts/pir-c6/
+
       - name: Rename dev binaries to stable asset filenames (dev channel)
         if: needs.channel.outputs.is_dev == 'true'
         run: |
@@ -409,7 +421,7 @@ jobs:
         run: |
           BASE_URL="https://petarivanov-msft.github.io/hivekit"
           # WARNING: keep in sync with flasher/ asset list — see CONTRIBUTING.md
-          FILES="index.html style.css manifest-scd40-c6.json manifest-bme280-c6.json manifest-sht40-c6.json assets/logo.svg assets/favicon.svg"
+          FILES="index.html style.css manifest-scd40-c6.json manifest-bme280-c6.json manifest-sht40-c6.json manifest-pir-c6.json assets/logo.svg assets/favicon.svg"
           for f in $FILES; do
             DIR=$(dirname "_site/$f")
             mkdir -p "$DIR"
@@ -421,7 +433,7 @@ jobs:
         run: |
           BASE_URL="https://petarivanov-msft.github.io/hivekit/dev"
           # WARNING: keep in sync with flasher/ asset list — see CONTRIBUTING.md
-          FILES="index.html style.css manifest-scd40-c6-dev.json manifest-bme280-c6-dev.json manifest-sht40-c6-dev.json assets/logo.svg assets/favicon.svg"
+          FILES="index.html style.css manifest-scd40-c6-dev.json manifest-bme280-c6-dev.json manifest-sht40-c6-dev.json manifest-pir-c6-dev.json assets/logo.svg assets/favicon.svg"
           for f in $FILES; do
             DIR=$(dirname "_site/dev/$f")
             mkdir -p "$DIR"
@@ -460,6 +472,10 @@ jobs:
               -e "s|__ASSET_BASE__|${ASSET_BASE}|g" \
               flasher/manifest-sht40-c6.json > _site/manifest-sht40-c6.json
 
+          sed -e "s|__VERSION__|${VERSION}|g" \
+              -e "s|__ASSET_BASE__|${ASSET_BASE}|g" \
+              flasher/manifest-pir-c6.json > _site/manifest-pir-c6.json
+
           echo "Staged stable channel: version=${VERSION}"
 
       - name: Substitute version placeholders and stage flasher (dev)
@@ -493,6 +509,10 @@ jobs:
           sed -e "s|__VERSION__|${DEV_DISPLAY_VERSION}|g" \
               -e "s|__ASSET_BASE__|${ASSET_BASE}|g" \
               flasher/manifest-sht40-c6-dev.json > _site/dev/manifest-sht40-c6-dev.json
+
+          sed -e "s|__VERSION__|${DEV_DISPLAY_VERSION}|g" \
+              -e "s|__ASSET_BASE__|${ASSET_BASE}|g" \
+              flasher/manifest-pir-c6-dev.json > _site/dev/manifest-pir-c6-dev.json
 
           echo "Staged dev channel: display_version=${DEV_DISPLAY_VERSION} asset_base=${ASSET_BASE}"
 
