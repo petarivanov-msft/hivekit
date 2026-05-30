@@ -54,12 +54,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SENSOR: scd40-c6
-  SENSOR_PATH: sensors/scd40-c6
   CHIP: esp32c6
-  # Merged binary offsets (verified against sensors/scd40-c6/partitions.csv):
+  # Merged binary offsets (verified against sensors/*/partitions.csv):
   #   bootloader  → 0x0000  (default ESP32-C6 bootloader offset)
-  #   part-table  → 0x8000  (NVS starts at 0x9000, so table at 0x8000)
+  #   part-table  → 0x8000
   #   factory app → 0x10000
   BOOTLOADER_OFFSET: "0x0"
   PARTITION_OFFSET: "0x8000"
@@ -123,15 +121,21 @@ jobs:
           echo "Channel: $CHANNEL | Version: $VERSION | DisplayVersion: $DEV_DISPLAY_VERSION | Stable: $IS_STABLE | Dev: $IS_DEV"
 
   # ------------------------------------------------------------------
-  # Build firmware (reuses same IDF action as build.yml)
+  # Build firmware — matrix over all sensors
   # ------------------------------------------------------------------
   build:
-    name: Build firmware (${{ needs.channel.outputs.version }})
+    name: Build ${{ matrix.sensor }} (${{ needs.channel.outputs.version }})
     needs: channel
     runs-on: ubuntu-latest
     permissions: {}  # build job needs no extra permissions
+    strategy:
+      fail-fast: false
+      matrix:
+        sensor: [scd40-c6, bme280-c6]
     outputs:
-      merged_bin: ${{ steps.names.outputs.merged_bin }}
+      # Only one matrix cell's output is used downstream; both cells upload
+      # their merged bin as separate named artifacts.
+      merged_bin_scd40: ${{ steps.names.outputs.merged_bin }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -142,22 +146,24 @@ jobs:
         id: names
         run: |
           VERSION="${{ needs.channel.outputs.version }}"
-          MERGED="hivekit-${{ env.SENSOR }}-${VERSION}.bin"
+          MERGED="hivekit-${{ matrix.sensor }}-${VERSION}.bin"
           echo "merged_bin=${MERGED}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}"   >> "$GITHUB_OUTPUT"
+          echo "sensor_path=sensors/${{ matrix.sensor }}" >> "$GITHUB_OUTPUT"
 
       - name: Build with espressif/esp-idf-ci-action
         uses: espressif/esp-idf-ci-action@e6f5c74232b1ccd4c97ed641f1e48553853f1fd5 # v1.2.0
         with:
           esp_idf_version: v5.5
           target: ${{ env.CHIP }}
-          path: ${{ env.SENSOR_PATH }}
+          path: sensors/${{ matrix.sensor }}
           command: idf.py build
 
       - name: Merge binaries into single flashable .bin
         run: |
           VERSION="${{ needs.channel.outputs.version }}"
-          MERGED="hivekit-${{ env.SENSOR }}-${VERSION}.bin"
+          MERGED="hivekit-${{ matrix.sensor }}-${VERSION}.bin"
+          SENSOR_PATH_VAL="sensors/${{ matrix.sensor }}"
 
           # esptool.py is bundled with ESP-IDF; activate the venv
           source /opt/esp/idf/export.sh 2>/dev/null || source ~/.espressif/python_env/*/bin/activate 2>/dev/null || true
@@ -168,8 +174,6 @@ jobs:
           fi
 
           # Resolve the project app binary deterministically via flasher_args.json.
-          # Falls back to CMakeLists.txt project() name only if that file is missing.
-          SENSOR_PATH_VAL="${{ env.SENSOR_PATH }}"
           FLASHER_ARGS="${SENSOR_PATH_VAL}/build/flasher_args.json"
           if [ -f "${FLASHER_ARGS}" ]; then
             APP_BIN=$(python3 .github/scripts/resolve_app_bin.py "${FLASHER_ARGS}")
@@ -192,8 +196,8 @@ jobs:
 
           esptool.py --chip ${{ env.CHIP }} merge_bin \
             -o "${MERGED}" \
-            ${{ env.BOOTLOADER_OFFSET }} ${{ env.SENSOR_PATH }}/build/bootloader/bootloader.bin \
-            ${{ env.PARTITION_OFFSET }}  ${{ env.SENSOR_PATH }}/build/partition_table/partition-table.bin \
+            ${{ env.BOOTLOADER_OFFSET }} ${SENSOR_PATH_VAL}/build/bootloader/bootloader.bin \
+            ${{ env.PARTITION_OFFSET }}  ${SENSOR_PATH_VAL}/build/partition_table/partition-table.bin \
             ${{ env.APP_OFFSET }}        "${APP_BIN_PATH}"
 
           if [ ! -f "${MERGED}" ]; then
@@ -205,19 +209,19 @@ jobs:
       - name: Upload merged bin artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: merged-bin
-          path: hivekit-${{ env.SENSOR }}-${{ needs.channel.outputs.version }}.bin
+          name: merged-bin-${{ matrix.sensor }}
+          path: hivekit-${{ matrix.sensor }}-${{ needs.channel.outputs.version }}.bin
           retention-days: 7
 
       - name: Upload individual firmware artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: firmware-parts
+          name: firmware-parts-${{ matrix.sensor }}
           path: |
-            ${{ env.SENSOR_PATH }}/build/bootloader/bootloader.bin
-            ${{ env.SENSOR_PATH }}/build/partition_table/partition-table.bin
-            ${{ env.SENSOR_PATH }}/build/*.bin
-            ${{ env.SENSOR_PATH }}/build/*.elf
+            sensors/${{ matrix.sensor }}/build/bootloader/bootloader.bin
+            sensors/${{ matrix.sensor }}/build/partition_table/partition-table.bin
+            sensors/${{ matrix.sensor }}/build/*.bin
+            sensors/${{ matrix.sensor }}/build/*.elf
           retention-days: 7
 
   # ------------------------------------------------------------------
@@ -236,27 +240,42 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Download merged bin artifact
+      - name: Download merged bin artifact (scd40-c6)
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: merged-bin
+          name: merged-bin-scd40-c6
           path: dist/
 
-      - name: Download firmware parts artifact
+      - name: Download merged bin artifact (bme280-c6)
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: firmware-parts
-          path: dist/parts/
+          name: merged-bin-bme280-c6
+          path: dist/
 
-      - name: Rename dev binary to stable asset filename (dev channel)
+      - name: Download firmware parts artifact (scd40-c6)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: firmware-parts-scd40-c6
+          path: dist/parts/scd40-c6/
+
+      - name: Download firmware parts artifact (bme280-c6)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: firmware-parts-bme280-c6
+          path: dist/parts/bme280-c6/
+
+      - name: Rename dev binaries to stable asset filenames (dev channel)
         if: needs.channel.outputs.is_dev == 'true'
         run: |
-          # Source file uses display version; stable asset name is always dev-latest
-          SRC_BIN="dist/hivekit-${{ env.SENSOR }}-${{ needs.channel.outputs.version }}.bin"
-          DEST_BIN="dist/hivekit-${{ env.SENSOR }}-dev-latest.bin"
-          if [ -f "${SRC_BIN}" ] && [ "${SRC_BIN}" != "${DEST_BIN}" ]; then
-            cp "${SRC_BIN}" "${DEST_BIN}"
-          fi
+          # Source files use display version; stable asset names always use dev-latest
+          for SENSOR in scd40-c6 bme280-c6; do
+            SRC_BIN="dist/hivekit-${SENSOR}-${{ needs.channel.outputs.version }}.bin"
+            DEST_BIN="dist/hivekit-${SENSOR}-dev-latest.bin"
+            if [ -f "${SRC_BIN}" ] && [ "${SRC_BIN}" != "${DEST_BIN}" ]; then
+              cp "${SRC_BIN}" "${DEST_BIN}"
+              echo "Renamed: ${SRC_BIN} → ${DEST_BIN}"
+            fi
+          done
 
       - name: Force-push dev-latest tag (dev channel only)
         if: needs.channel.outputs.is_dev == 'true' && !startsWith(github.ref, 'refs/tags/')
@@ -276,14 +295,14 @@ jobs:
 
           if [[ "$IS_STABLE" == "true" ]]; then
             TAG="${VERSION}"
-            MERGED_BIN="dist/hivekit-${{ env.SENSOR }}-${VERSION}.bin"
             TITLE="HiveKit ${VERSION}"
             printf '%s\n' \
               "## HiveKit ${VERSION} — Stable Release" \
               "" \
               "### Firmware assets" \
-              "- hivekit-${{ env.SENSOR }}-${VERSION}.bin — merged binary, flash at offset 0x0" \
-              "- Individual bootloader / partition-table / app .bin files" \
+              "- hivekit-scd40-c6-${VERSION}.bin — SCD40 merged binary, flash at offset 0x0" \
+              "- hivekit-bme280-c6-${VERSION}.bin — BME280 merged binary (☆ untested), flash at offset 0x0" \
+              "- Individual bootloader / partition-table / app .bin files per sensor" \
               "" \
               "### Web flasher" \
               "Visit https://petarivanov-msft.github.io/hivekit/ to flash without a terminal." \
@@ -293,17 +312,16 @@ jobs:
             NOTES=$(cat /tmp/release_notes.md)
             # Stable: check first, create only if new, upload if already exists
             if gh release view "${TAG}" >/dev/null 2>&1; then
-              gh release upload "${TAG}" "${MERGED_BIN}" dist/parts/*.bin dist/parts/*.elf --clobber
+              gh release upload "${TAG}" dist/hivekit-scd40-c6-${VERSION}.bin dist/hivekit-bme280-c6-${VERSION}.bin dist/parts/*/*.bin dist/parts/*/*.elf --clobber
             else
               gh release create "${TAG}" \
                 --title "${TITLE}" \
                 --notes "${NOTES}" \
-                "${MERGED_BIN}" dist/parts/*.bin dist/parts/*.elf
+                dist/hivekit-scd40-c6-${VERSION}.bin dist/hivekit-bme280-c6-${VERSION}.bin dist/parts/*/*.bin dist/parts/*/*.elf
             fi
           else
             # Dev channel: single reusable dev-latest pre-release (delete + recreate)
             TAG="dev-latest"
-            MERGED_BIN="dist/hivekit-${{ env.SENSOR }}-dev-latest.bin"
             TITLE="HiveKit ${DEV_DISPLAY_VERSION} (dev-latest)"
             printf '%s\n' \
               "## HiveKit Dev Channel — ${DEV_DISPLAY_VERSION}" \
@@ -322,7 +340,7 @@ jobs:
               --title "${TITLE}" \
               --notes "${NOTES}" \
               --prerelease \
-              "${MERGED_BIN}" dist/parts/*.bin dist/parts/*.elf
+              dist/hivekit-scd40-c6-dev-latest.bin dist/hivekit-bme280-c6-dev-latest.bin dist/parts/*/*.bin dist/parts/*/*.elf
           fi
 
       - name: Compute asset URL base
@@ -355,11 +373,9 @@ jobs:
       - name: Checkout (to get flasher/ sources)
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Download merged bin artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: merged-bin
-          path: dist/
+      # NOTE: deploy-pages only needs flasher source files (from checkout), not
+      # the firmware binaries (those are attached to GitHub Releases, not Pages).
+      # We deliberately skip downloading merged-bin here.
 
       - name: Prepare Pages staging directory
         run: mkdir -p _site _site/dev
@@ -369,7 +385,7 @@ jobs:
         run: |
           BASE_URL="https://petarivanov-msft.github.io/hivekit"
           # WARNING: keep in sync with flasher/ asset list — see CONTRIBUTING.md
-          FILES="index.html style.css manifest-scd40-c6.json assets/logo.svg assets/favicon.svg"
+          FILES="index.html style.css manifest-scd40-c6.json manifest-bme280-c6.json assets/logo.svg assets/favicon.svg"
           for f in $FILES; do
             DIR=$(dirname "_site/$f")
             mkdir -p "$DIR"
@@ -381,7 +397,7 @@ jobs:
         run: |
           BASE_URL="https://petarivanov-msft.github.io/hivekit/dev"
           # WARNING: keep in sync with flasher/ asset list — see CONTRIBUTING.md
-          FILES="index.html style.css manifest-scd40-c6-dev.json assets/logo.svg assets/favicon.svg"
+          FILES="index.html style.css manifest-scd40-c6-dev.json manifest-bme280-c6-dev.json assets/logo.svg assets/favicon.svg"
           for f in $FILES; do
             DIR=$(dirname "_site/dev/$f")
             mkdir -p "$DIR"
@@ -401,16 +417,20 @@ jobs:
           cp flasher/assets/favicon.svg _site/assets/favicon.svg
 
           # Substitute placeholders in index.html
-          # __MANIFEST__ → stable manifest filename
+          # __MANIFEST__ default → scd40-c6 stable manifest (JS updates on sensor change)
           sed -e "s|__VERSION__|${VERSION}|g" \
               -e "s|__CHANNEL__|stable|g" \
               -e "s|__MANIFEST__|manifest-scd40-c6.json|g" \
               flasher/index.html > _site/index.html
 
-          # Substitute placeholders in stable manifest
+          # Substitute placeholders in stable manifests (all sensors)
           sed -e "s|__VERSION__|${VERSION}|g" \
               -e "s|__ASSET_BASE__|${ASSET_BASE}|g" \
               flasher/manifest-scd40-c6.json > _site/manifest-scd40-c6.json
+
+          sed -e "s|__VERSION__|${VERSION}|g" \
+              -e "s|__ASSET_BASE__|${ASSET_BASE}|g" \
+              flasher/manifest-bme280-c6.json > _site/manifest-bme280-c6.json
 
           echo "Staged stable channel: version=${VERSION}"
 
@@ -428,20 +448,19 @@ jobs:
           cp flasher/assets/favicon.svg _site/dev/assets/favicon.svg
 
           # Substitute placeholders in index.html for dev channel
-          # VERSION placeholder uses the display version (dev-<shortsha>) so the UI footer
-          # shows something meaningful even though the release tag is always dev-latest.
-          # __MANIFEST__ → dev manifest filename
           sed -e "s|__VERSION__|${DEV_DISPLAY_VERSION}|g" \
               -e "s|__CHANNEL__|dev|g" \
               -e "s|__MANIFEST__|manifest-scd40-c6-dev.json|g" \
               flasher/index.html > _site/dev/index.html
 
-          # Substitute placeholders in dev manifest
-          # Asset binary filename is stable: hivekit-scd40-c6-dev-latest.bin
-          # (the __ASSET_BASE__ substitution handles the full URL)
+          # Substitute placeholders in dev manifests (all sensors)
           sed -e "s|__VERSION__|${DEV_DISPLAY_VERSION}|g" \
               -e "s|__ASSET_BASE__|${ASSET_BASE}|g" \
               flasher/manifest-scd40-c6-dev.json > _site/dev/manifest-scd40-c6-dev.json
+
+          sed -e "s|__VERSION__|${DEV_DISPLAY_VERSION}|g" \
+              -e "s|__ASSET_BASE__|${ASSET_BASE}|g" \
+              flasher/manifest-bme280-c6-dev.json > _site/dev/manifest-bme280-c6-dev.json
 
           echo "Staged dev channel: display_version=${DEV_DISPLAY_VERSION} asset_base=${ASSET_BASE}"
 
