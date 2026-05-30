@@ -90,6 +90,9 @@
           <option value="sht40-c6" data-manifest="manifest-sht40-c6.json" data-tested="false">
             SHT40 (XIAO ESP32-C6) — temp + humidity ☆ Untested
           </option>
+          <option value="pir-c6" data-manifest="manifest-pir-c6.json" data-tested="false">
+            PIR (XIAO ESP32-C6) — motion sensor ☆ Untested
+          </option>
         </select>
         <span class="sensor-status tested" id="sensor-badge" aria-label="Sensor status: Tested">
           ★ Tested
@@ -217,6 +220,10 @@
         },
         'sht40-c6': {
           desc: 'High-accuracy temperature and humidity sensor (Sensirion SHT40). Pairs natively with Zigbee2MQTT.',
+          tested: false
+        },
+        'pir-c6': {
+          desc: 'Motion sensor (PIR). Binary occupancy events. Pairs natively with Zigbee2MQTT.',
           tested: false
         }
       };

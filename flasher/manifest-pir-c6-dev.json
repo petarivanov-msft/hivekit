@@ -1,0 +1,16 @@
+{
+  "name": "HiveKit PIR (XIAO ESP32-C6) — Dev",
+  "version": "__VERSION__",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-C6",
+      "parts": [
+        {
+          "path": "__ASSET_BASE__/hivekit-pir-c6-dev-latest.bin",
+          "offset": 0
+        }
+      ]
+    }
+  ]
+}
