@@ -1,0 +1,43 @@
+# menu "HiveKit PIR Sensor Configuration"
+# This file provides sensor-specific Kconfig options for pir-c6.
+# The shared hivekit component's Kconfig is at components/hivekit/Kconfig.
+
+menu "HiveKit PIR Sensor"
+
+    config HIVEKIT_PIR_GPIO
+        int "PIR output GPIO"
+        default 2
+        help
+            GPIO number connected to the PIR module's signal (OUT) pin.
+            Recommended: GPIO2 or GPIO4 on XIAO ESP32-C6.
+            GPIO2 is used by default (free from I²C, SPI, UART, JTAG conflicts
+            on XIAO ESP32-C6 with standard HiveKit pinout).
+            Reference: Seeed Studio XIAO ESP32-C6 pinout diagram.
+
+    config HIVEKIT_PIR_ACTIVE_HIGH
+        bool "PIR output is active-high"
+        default y
+        help
+            Most PIR modules (AM312, HC-SR501) drive their OUT pin HIGH on motion
+            and LOW when idle. Set this to 'n' if your module uses active-low logic.
+
+    config HIVEKIT_PIR_DEBOUNCE_MS
+        int "Debounce interval (ms)"
+        default 250
+        help
+            Minimum time between occupancy state change reports.
+            PIR modules can chatter (toggle rapidly) around the detection threshold.
+            250 ms prevents burst-reporting while still capturing quick re-triggers.
+            Valid range: 0–5000.
+
+    config HIVEKIT_PIR_KEEPALIVE_INTERVAL_S
+        int "Keepalive report interval (seconds)"
+        default 300
+        help
+            How often to send a periodic occupancy report even if the state has
+            not changed. This acts as a heartbeat so Z2M does not mark the device
+            as unavailable.
+            Default 300 = 5 minutes. ZCL reporting max-interval will be set to
+            this value.
+
+endmenu

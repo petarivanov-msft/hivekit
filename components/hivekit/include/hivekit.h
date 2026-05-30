@@ -60,6 +60,13 @@ typedef struct hivekit_sht40_reading_s {
 } hivekit_sht40_reading_t;
 
 /**
+ * @brief PIR occupancy state (wraps a bool for future extensibility).
+ */
+typedef struct hivekit_pir_state_s {
+    bool occupied; /*!< true = motion detected / occupied; false = unoccupied */
+} hivekit_pir_state_t;
+
+/**
  * @brief BME280 measurements: temperature, humidity, and pressure.
  */
 typedef struct hivekit_bme280_reading_s {
@@ -104,6 +111,37 @@ esp_err_t hivekit_init(const hivekit_config_t *cfg);
 void hivekit_set_signal_handler_cb(void (*cb)(uint16_t signal_type, const void *params));
 
 /* ── Cluster / endpoint setup ─────────────────────────────────────────────── */
+
+/**
+ * @brief Create the PIR Zigbee device: Basic + Identify + Occupancy Sensing clusters.
+ *
+ * Registers endpoint 1 with the ZHA HA profile (0x0104).
+ * Clusters:
+ *   0x0406 Occupancy Sensing  (bitmap8 bit 0: occupied)
+ *   OccupancySensorType = 0 (PIR)
+ *
+ * This function does NOT start GPIO monitoring. Call pir_init() separately
+ * after hivekit_create_pir_device() and esp_zigbee_start().
+ *
+ * @return ESP_OK on success.
+ */
+esp_err_t hivekit_create_pir_device(void);
+
+/**
+ * @brief Push PIR occupancy state into the Zigbee attribute cache and trigger a report.
+ *
+ * Updates:
+ *   - Occupancy Sensing Occupancy attribute (0x0406, attr 0x0000): bitmap8 bit 0
+ *
+ * Event-driven: called from the PIR consumer task on any debounced state change,
+ * and periodically as a keepalive report.
+ *
+ * Must acquire esp_zigbee_lock before calling.
+ *
+ * @param[in] occupied true = motion present / occupied.
+ * @return ESP_OK on success.
+ */
+esp_err_t hivekit_report_pir(bool occupied);
 
 /**
  * @brief Create the SCD40 Zigbee device: Basic + Identify + Temp + Humidity + CO2 clusters.
