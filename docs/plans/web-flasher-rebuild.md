@@ -368,3 +368,24 @@ PR merges. Document this clearly in the PR description.
   PowerShell, ESP-IDF v5.5.4) — useful for the instructions panel in F3.
 - `docs/links.md` → florianL21/zigbee-co2-sensor reference flasher.
   **Inspiration only — do not copy code.**
+
+---
+
+## Decisions (Petar, 2026-05-30)
+
+- **Q1.** Dev channel + stable. Dev branch publishes nightly/per-push to a `dev/` subpath of Pages (e.g. `/hivekit/dev/`); stable lives at root (`/hivekit/`). Once a dev build is verified working, tag a stable release which deploys to root. Both paths use the same `index.html` but each has its own manifest pointing at its own assets URL.
+- **Q2.** Single sensor-selector **dropdown** + one global Install button. (Cards rejected; dropdown chosen.)
+- **Q3.** Match the lesson-PDF palette — gradient `linear-gradient(135deg, #6A1B9A 0%, #0078D4 50%, #00BCD4 100%)` (purple → Microsoft blue → cyan). Heading colour `#1a1a1a` light / `#CDD6F4` dark. Surface colours from the lesson `#FAFBFC` light / `#1E1E2E` dark.
+- **Q4.** Default — Google Fonts (Inter + JetBrains Mono).
+- **Q5.** Fresh `v0.3.4` after merge.
+- **Q6.** Screenshot in README — yes.
+- **Q7.** No custom domain — `*.github.io` for now.
+
+### Plan adjustments from these decisions
+
+- **F1 (release workflow):** must build TWO publish paths. Tag-driven stable AND `push` to `dev` branch → publishes ephemeral merged-bin to a per-commit GitHub Release (or to artifacts-as-pages-source) and deploys to `/hivekit/dev/`. Pre-release tags (`-beta`, `-alpha`, `-rc`) deploy to `/hivekit/dev/` too, not stable.
+- **F2 (manifest):** two manifests per sensor — `manifest-scd40-c6.json` (stable, root) and `manifest-scd40-c6-dev.json` (dev, points at dev assets). Or one templated manifest substituted at deploy time per channel — implementer picks the cleaner approach.
+- **F3 (index.html):** swap sensor-cards grid for a single `<select>` dropdown listing sensors (each option also shows the ★/☆ status badge and tested/untested label). Hero gradient + brand palette per Q3. Channel toggle (stable/dev) visible if URL is `/dev/` subpath.
+- **F4 (Pages deploy):** deploys both root (on stable tags only) and `/dev/` subpath (on dev branch push). Concurrency group split per channel so they don't cancel each other.
+- **F5 (README):** mention both URLs — stable for users, `/dev/` for testers.
+
