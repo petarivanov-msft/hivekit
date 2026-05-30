@@ -46,6 +46,23 @@ subpath without clobbering the stable root.
 
 ## Adding a new sensor
 
+### Step 0: Add shared Zigbee bindings
+
+Before writing sensor-specific code, check whether your sensor's ZCL clusters
+are already handled in the shared HiveKit core:
+
+- **`components/hivekit/hivekit_core.c`** — registers Zigbee endpoints, cluster
+  attribute tables, and reporting callbacks. Add or extend endpoint descriptors
+  here for your sensor's clusters (e.g. 0x0402 temperature, 0x0405 humidity,
+  0x0403 pressure).
+- **`components/hivekit/include/hivekit.h`** — public API: `hivekit_report_*`
+  helpers and the `hivekit_sensor_data_t` union. Add your sensor's data type
+  and any new report function declarations here.
+
+These two files were the most error-prone part of adding BME280 — easy to miss
+because they live outside `sensors/` but must be touched for every new sensor.
+Get them right before touching anything in `sensors/`.
+
 ### 1. Add the firmware
 
 Follow the existing `sensors/scd40-c6/` pattern. Your sensor lives in
