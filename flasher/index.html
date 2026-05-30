@@ -87,6 +87,9 @@
           <option value="bme280-c6" data-manifest="manifest-bme280-c6.json" data-tested="false">
             BME280 (XIAO ESP32-C6) — temp + humidity + pressure ☆ Untested
           </option>
+          <option value="sht40-c6" data-manifest="manifest-sht40-c6.json" data-tested="false">
+            SHT40 (XIAO ESP32-C6) — temp + humidity ☆ Untested
+          </option>
         </select>
         <span class="sensor-status tested" id="sensor-badge" aria-label="Sensor status: Tested">
           ★ Tested
@@ -210,6 +213,10 @@
         },
         'bme280-c6': {
           desc: 'Atmospheric pressure, temperature, and humidity sensor. Pairs natively with Zigbee2MQTT.',
+          tested: false
+        },
+        'sht40-c6': {
+          desc: 'High-accuracy temperature and humidity sensor (Sensirion SHT40). Pairs natively with Zigbee2MQTT.',
           tested: false
         }
       };

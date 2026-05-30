@@ -414,6 +414,115 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
+ * SHT40 device — Temperature + Humidity
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+esp_err_t hivekit_create_sht40_device(void)
+{
+    ESP_RETURN_ON_FALSE(s_cfg, ESP_ERR_INVALID_STATE, TAG, "hivekit not initialised");
+
+    const uint8_t ep_id = 1;
+
+    /* Create device descriptor */
+    ezb_af_device_desc_t dev_desc = ezb_af_create_device_desc();
+    ESP_RETURN_ON_FALSE(dev_desc, ESP_ERR_NO_MEM, TAG, "Failed to create device desc");
+
+    /* Base: temperature sensor (gives Basic + Identify + Temperature clusters).
+     * SHT40 operating range: -40 to +125 °C (datasheet §1.2).
+     * Source: https://sensirion.com/media/documents/33C09C07/626C2DBA/Datasheet_SHT4x.pdf */
+    ezb_zha_temperature_sensor_config_t ts_cfg = EZB_ZHA_TEMPERATURE_SENSOR_CONFIG();
+    ts_cfg.temp_meas_cfg.min_measured_value = -4000; /* -40.00 °C */
+    ts_cfg.temp_meas_cfg.max_measured_value = 12500; /* +125.00 °C (SHT40 upper limit) */
+
+    ezb_af_ep_desc_t ep_desc = ezb_zha_create_temperature_sensor(ep_id, &ts_cfg);
+    ESP_RETURN_ON_FALSE(ep_desc, ESP_ERR_NO_MEM, TAG, "Failed to create endpoint desc");
+
+    /* Patch Basic cluster: manufacturer name + model ID */
+    ezb_zcl_cluster_desc_t basic_desc =
+        ezb_af_endpoint_get_cluster_desc(ep_desc,
+                                         EZB_ZCL_CLUSTER_ID_BASIC,
+                                         EZB_ZCL_CLUSTER_SERVER);
+    ezb_zcl_basic_cluster_desc_add_attr(basic_desc,
+                                        EZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID,
+                                        (void *)s_cfg->manufacturer_name);
+    ezb_zcl_basic_cluster_desc_add_attr(basic_desc,
+                                        EZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID,
+                                        (void *)s_cfg->model_identifier);
+    if (s_cfg->fw_version) {
+        ezb_zcl_basic_cluster_desc_add_attr(basic_desc,
+                                            EZB_ZCL_ATTR_BASIC_SW_BUILD_ID_ID,
+                                            (void *)s_cfg->fw_version);
+    }
+
+    /* Add Relative Humidity cluster (0x0405).
+     * SHT40 RH range: 0–100 %RH (datasheet §1.2).
+     * SOURCE: ezbee/zcl/cluster/rel_humidity_measurement_desc.h */
+    ezb_zcl_rel_humidity_measurement_cluster_server_config_t rh_cfg = {
+        .measured_value     = 0,
+        .min_measured_value = 0,
+        .max_measured_value = 10000, /* 100.00% */
+    };
+    ezb_zcl_cluster_desc_t rh_cluster =
+        ezb_zcl_rel_humidity_measurement_create_cluster_desc(&rh_cfg,
+                                                             EZB_ZCL_CLUSTER_SERVER);
+    if (rh_cluster) {
+        ezb_af_endpoint_add_cluster_desc(ep_desc, rh_cluster);
+    } else {
+        ESP_LOGW(TAG, "[sht40] Failed to create humidity cluster (non-fatal)");
+    }
+
+    /* Register the device */
+    ESP_RETURN_ON_ERROR(ezb_af_device_add_endpoint_desc(dev_desc, ep_desc),
+                        TAG, "[sht40] Failed to add endpoint");
+    ESP_RETURN_ON_ERROR(ezb_af_device_desc_register(dev_desc),
+                        TAG, "[sht40] Failed to register device");
+
+    return ESP_OK;
+}
+
+esp_err_t hivekit_report_sht40(const hivekit_sht40_reading_t *reading)
+{
+    ESP_RETURN_ON_FALSE(reading, ESP_ERR_INVALID_ARG, TAG, "NULL reading");
+
+    const uint8_t ep_id = 1;
+
+    /* Temperature: int16 in units of 0.01 °C
+     * e.g. 23.50 °C → 2350
+     * SOURCE: ezbee/zcl/cluster/temperature_measurement_desc.h */
+    int16_t temp_val = (int16_t)(reading->temperature_c * 100.0f);
+
+    /* Humidity: uint16 in units of 0.01 %
+     * e.g. 55.00% → 5500
+     * SOURCE: ezbee/zcl/cluster/rel_humidity_measurement_desc.h */
+    uint16_t rh_val = (uint16_t)(reading->humidity_pct * 100.0f);
+
+    esp_zigbee_lock_acquire(portMAX_DELAY);
+
+    esp_err_t t_err = ezb_zcl_set_attr_value(ep_id,
+                           EZB_ZCL_CLUSTER_ID_TEMPERATURE_MEASUREMENT,
+                           EZB_ZCL_CLUSTER_SERVER,
+                           EZB_ZCL_ATTR_TEMPERATURE_MEASUREMENT_MEASURED_VALUE_ID,
+                           EZB_ZCL_STD_MANUF_CODE,
+                           (uint8_t *)&temp_val,
+                           false);
+
+    esp_err_t h_err = ezb_zcl_set_attr_value(ep_id,
+                           EZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
+                           EZB_ZCL_CLUSTER_SERVER,
+                           EZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ID,
+                           EZB_ZCL_STD_MANUF_CODE,
+                           (uint8_t *)&rh_val,
+                           false);
+
+    esp_zigbee_lock_release();
+
+    ESP_LOGI(TAG, "[sht40] ZCL: temp=0x%x rh=0x%x (%.2f°C, %.1f%%)",
+             t_err, h_err, reading->temperature_c, reading->humidity_pct);
+
+    return ESP_OK;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
  * BME280 device — Temperature + Humidity + Pressure
  * ════════════════════════════════════════════════════════════════════════════ */
 
