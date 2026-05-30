@@ -397,23 +397,61 @@ jobs:
       - name: Checkout (to get flasher/ sources)
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      # NOTE: deploy-pages only needs flasher source files (from checkout), not
-      # the firmware binaries (those are attached to GitHub Releases, not Pages).
-      # We deliberately skip downloading merged-bin here.
+      # Firmware binaries are now ALSO served from Pages (under firmware/)
+      # so the ESP Web Tools flasher can fetch them same-origin. GitHub
+      # Releases (releases/download/...) does not set CORS headers and was
+      # blocked by the browser. Releases continue to host the binaries too,
+      # as a downloadable archive / fallback (see Bug 1 in CHANGELOG).
+      - name: Download merged bin artifact (scd40-c6)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: merged-bin-scd40-c6
+          path: dist/
+
+      - name: Download merged bin artifact (bme280-c6)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: merged-bin-bme280-c6
+          path: dist/
+
+      - name: Download merged bin artifact (sht40-c6)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: merged-bin-sht40-c6
+          path: dist/
 
       - name: Prepare Pages staging directory
-        run: mkdir -p _site _site/dev
+        run: mkdir -p _site _site/dev _site/firmware _site/dev/firmware
 
       - name: Fetch existing stable Pages content (for dev deploy, to avoid clobbering)
         if: needs.channel.outputs.is_dev == 'true'
         run: |
           BASE_URL="https://petarivanov-msft.github.io/hivekit"
           # WARNING: keep in sync with flasher/ asset list — see CONTRIBUTING.md
+          # Static assets (HTML/CSS/JSON/SVG)
           FILES="index.html style.css manifest-scd40-c6.json manifest-bme280-c6.json manifest-sht40-c6.json assets/logo.svg assets/favicon.svg"
           for f in $FILES; do
             DIR=$(dirname "_site/$f")
             mkdir -p "$DIR"
             curl -sf "${BASE_URL}/${f}" -o "_site/${f}" 2>/dev/null && echo "Fetched: $f" || echo "Missing (not yet deployed): $f"
+          done
+          # Firmware binaries — fetched from a manifest so we don't need to
+          # know the exact stable version. The manifest's parts[0].path is
+          # same-origin (firmware/...) since the CORS fix; fall back gracefully
+          # if a sensor manifest is missing.
+          mkdir -p _site/firmware
+          for SENSOR in ${{ env.SENSORS }}; do
+            MANIFEST_URL="${BASE_URL}/manifest-${SENSOR}.json"
+            BIN_PATH=$(curl -sf "${MANIFEST_URL}" | python3 -c "import sys,json; print(json.load(sys.stdin)['builds'][0]['parts'][0]['path'])" 2>/dev/null || true)
+            if [[ -n "${BIN_PATH}" ]]; then
+              # Strip any URL prefix; we want the path relative to the channel root
+              BIN_RELATIVE=${BIN_PATH##*://}
+              BIN_RELATIVE=${BIN_RELATIVE#*/}
+              BIN_NAME=$(basename "${BIN_PATH}")
+              curl -sf "${BASE_URL}/firmware/${BIN_NAME}" -o "_site/firmware/${BIN_NAME}" 2>/dev/null \
+                && echo "Fetched stable firmware: ${BIN_NAME}" \
+                || echo "Missing stable firmware (not yet deployed): ${BIN_NAME}"
+            fi
           done
 
       - name: Fetch existing dev Pages content (for stable deploy, to avoid clobbering)
@@ -426,6 +464,14 @@ jobs:
             DIR=$(dirname "_site/dev/$f")
             mkdir -p "$DIR"
             curl -sf "${BASE_URL}/${f}" -o "_site/dev/${f}" 2>/dev/null && echo "Fetched dev: $f" || echo "Missing dev (not yet deployed): $f"
+          done
+          # Dev firmware binaries — use fixed dev-latest filenames
+          mkdir -p _site/dev/firmware
+          for SENSOR in ${{ env.SENSORS }}; do
+            BIN_NAME="hivekit-${SENSOR}-dev-latest.bin"
+            curl -sf "${BASE_URL}/firmware/${BIN_NAME}" -o "_site/dev/firmware/${BIN_NAME}" 2>/dev/null \
+              && echo "Fetched dev firmware: ${BIN_NAME}" \
+              || echo "Missing dev firmware (not yet deployed): ${BIN_NAME}"
           done
 
       - name: Substitute version placeholders and stage flasher (stable)
@@ -447,7 +493,11 @@ jobs:
               -e "s|__MANIFEST__|manifest-scd40-c6.json|g" \
               flasher/index.html > _site/index.html
 
-          # Substitute placeholders in stable manifests (all sensors)
+          # Substitute placeholders in stable manifests (all sensors).
+          # __ASSET_BASE__ is retained as a no-op substitution for backwards
+          # compatibility with any external manifests still using the placeholder;
+          # the in-tree manifests now use a same-origin "firmware/..." path so
+          # ESP Web Tools can fetch them without CORS errors (Bug 1 fix).
           sed -e "s|__VERSION__|${VERSION}|g" \
               -e "s|__ASSET_BASE__|${ASSET_BASE}|g" \
               flasher/manifest-scd40-c6.json > _site/manifest-scd40-c6.json
@@ -459,6 +509,21 @@ jobs:
           sed -e "s|__VERSION__|${VERSION}|g" \
               -e "s|__ASSET_BASE__|${ASSET_BASE}|g" \
               flasher/manifest-sht40-c6.json > _site/manifest-sht40-c6.json
+
+          # Stage merged firmware binaries under firmware/ for same-origin
+          # fetching (Bug 1 — CORS).
+          mkdir -p _site/firmware
+          for SENSOR in ${{ env.SENSORS }}; do
+            SRC="dist/hivekit-${SENSOR}-${VERSION}.bin"
+            DEST="_site/firmware/hivekit-${SENSOR}-${VERSION}.bin"
+            if [ -f "${SRC}" ]; then
+              cp "${SRC}" "${DEST}"
+              echo "Staged firmware: ${DEST}"
+            else
+              echo "ERROR: firmware not found: ${SRC}" >&2
+              exit 1
+            fi
+          done
 
           echo "Staged stable channel: version=${VERSION}"
 
@@ -481,7 +546,10 @@ jobs:
               -e "s|__MANIFEST__|manifest-scd40-c6-dev.json|g" \
               flasher/index.html > _site/dev/index.html
 
-          # Substitute placeholders in dev manifests (all sensors)
+          # Substitute placeholders in dev manifests (all sensors).
+          # __ASSET_BASE__ retained as a no-op substitution for backwards
+          # compatibility; in-tree manifests use same-origin "firmware/..." paths
+          # (Bug 1 — CORS).
           sed -e "s|__VERSION__|${DEV_DISPLAY_VERSION}|g" \
               -e "s|__ASSET_BASE__|${ASSET_BASE}|g" \
               flasher/manifest-scd40-c6-dev.json > _site/dev/manifest-scd40-c6-dev.json
@@ -493,6 +561,21 @@ jobs:
           sed -e "s|__VERSION__|${DEV_DISPLAY_VERSION}|g" \
               -e "s|__ASSET_BASE__|${ASSET_BASE}|g" \
               flasher/manifest-sht40-c6-dev.json > _site/dev/manifest-sht40-c6-dev.json
+
+          # Stage merged firmware binaries under dev/firmware/ for same-origin
+          # fetching (Bug 1 — CORS). Dev uses fixed dev-latest filenames.
+          mkdir -p _site/dev/firmware
+          for SENSOR in ${{ env.SENSORS }}; do
+            SRC="dist/hivekit-${SENSOR}-dev-latest.bin"
+            DEST="_site/dev/firmware/hivekit-${SENSOR}-dev-latest.bin"
+            if [ -f "${SRC}" ]; then
+              cp "${SRC}" "${DEST}"
+              echo "Staged dev firmware: ${DEST}"
+            else
+              echo "ERROR: dev firmware not found: ${SRC}" >&2
+              exit 1
+            fi
+          done
 
           echo "Staged dev channel: display_version=${DEV_DISPLAY_VERSION} asset_base=${ASSET_BASE}"
 
@@ -519,17 +602,26 @@ jobs:
             OK=false
             for attempt in 1 2 3 4 5 6; do
               echo "  attempt ${attempt}/6..."
-              DEPLOYED_VER=$(curl -sf "${URL}" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])" 2>/dev/null)
+              MANIFEST_JSON=$(curl -sf "${URL}" || true)
+              DEPLOYED_VER=$(echo "${MANIFEST_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])" 2>/dev/null || true)
+              BIN_PATH=$(echo "${MANIFEST_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin)['builds'][0]['parts'][0]['path'])" 2>/dev/null || true)
               if [[ "${DEPLOYED_VER}" == "${VERSION}" ]]; then
-                echo "  Smoke check passed: ${URL} → version=${DEPLOYED_VER}"
-                OK=true
-                break
+                # Bug 1 — verify same-origin firmware path is also fetchable.
+                BIN_URL="https://petarivanov-msft.github.io/hivekit/${BIN_PATH}"
+                if curl -sfI "${BIN_URL}" >/dev/null; then
+                  echo "  Smoke check passed: ${URL} → version=${DEPLOYED_VER}, firmware OK at ${BIN_URL}"
+                  OK=true
+                  break
+                else
+                  echo "  Manifest OK but firmware NOT yet reachable at ${BIN_URL}"
+                fi
+              else
+                echo "  Not yet propagated (got '${DEPLOYED_VER}', want '${VERSION}'). Waiting 10s..."
               fi
-              echo "  Not yet propagated (got '${DEPLOYED_VER}', want '${VERSION}'). Waiting 10s..."
               [ $attempt -lt 6 ] && sleep 10
             done
             if [[ "$OK" != "true" ]]; then
-              echo "ERROR: Smoke check failed after 6 attempts. Expected '${VERSION}' at ${URL}" >&2
+              echo "ERROR: Smoke check failed after 6 attempts. Expected '${VERSION}' at ${URL} with reachable firmware" >&2
               exit 1
             fi
           done
@@ -545,17 +637,25 @@ jobs:
             OK=false
             for attempt in 1 2 3 4 5 6; do
               echo "  attempt ${attempt}/6..."
-              DEPLOYED_VER=$(curl -sf "${URL}" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])" 2>/dev/null)
+              MANIFEST_JSON=$(curl -sf "${URL}" || true)
+              DEPLOYED_VER=$(echo "${MANIFEST_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])" 2>/dev/null || true)
+              BIN_PATH=$(echo "${MANIFEST_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin)['builds'][0]['parts'][0]['path'])" 2>/dev/null || true)
               if [[ "${DEPLOYED_VER}" == "${DEV_DISPLAY_VERSION}" ]]; then
-                echo "  Smoke check passed: ${URL} → version=${DEPLOYED_VER}"
-                OK=true
-                break
+                BIN_URL="https://petarivanov-msft.github.io/hivekit/dev/${BIN_PATH}"
+                if curl -sfI "${BIN_URL}" >/dev/null; then
+                  echo "  Smoke check passed: ${URL} → version=${DEPLOYED_VER}, firmware OK at ${BIN_URL}"
+                  OK=true
+                  break
+                else
+                  echo "  Manifest OK but firmware NOT yet reachable at ${BIN_URL}"
+                fi
+              else
+                echo "  Not yet propagated (got '${DEPLOYED_VER}', want '${DEV_DISPLAY_VERSION}'). Waiting 10s..."
               fi
-              echo "  Not yet propagated (got '${DEPLOYED_VER}', want '${DEV_DISPLAY_VERSION}'). Waiting 10s..."
               [ $attempt -lt 6 ] && sleep 10
             done
             if [[ "$OK" != "true" ]]; then
-              echo "ERROR: Smoke check failed after 6 attempts. Expected '${DEV_DISPLAY_VERSION}' at ${URL}" >&2
+              echo "ERROR: Smoke check failed after 6 attempts. Expected '${DEV_DISPLAY_VERSION}' at ${URL} with reachable firmware" >&2
               exit 1
             fi
           done
