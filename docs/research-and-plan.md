@@ -187,7 +187,7 @@ Priority order for Phase 0-2:
 
 | Priority | Sensor | IC | Clusters | Interface | Notes |
 |---|---|---|---|---|---|
-| ⭐⭐⭐ | CO2 + Temp + Humidity | SCD40 | 3 clusters | I2C | Petar's existing hardware |
+| ⭐⭐⭐ | CO2 + Temp + Humidity | SCD40 | 3 clusters | I2C | Available hardware |
 | ⭐⭐⭐ | Temp + Humidity + Pressure | BME280 | 3 clusters | I2C/SPI | Most common combo |
 | ⭐⭐ | Temp + Humidity | SHT40 | 2 clusters | I2C | Premium T+H, popular |
 | ⭐⭐ | PIR Occupancy | Generic PIR | 0x0406 | GPIO | Simple, high demand |
@@ -201,7 +201,7 @@ Priority order for Phase 0-2:
 ## Part 6: Project Plan (Phased)
 
 ### Phase 0: PoC (~1 weekend)
-**Deliverable**: SCD40 on Petar's C6 pairs with Z2M and reports all 3 sensors  
+**Deliverable**: SCD40 on the C6 pairs with Z2M and reports all 3 sensors  
 **Effort**: 1–2 days  
 **Risk**: Interview failures (known C6 issue) — keep device close to coordinator
 
@@ -224,7 +224,7 @@ Priority order for Phase 0-2:
 **Risk**: BME680 VOC cluster mapping is non-standard; PIR needs careful debounce logic
 
 ### Phase 3: OTA + Optional Config System (~4–8 weeks)
-**Deliverables**: Robust OTA flow tested end-to-end; YAML config generator (if warranted)  
+**Deliverables**: OTA flow tested end-to-end; YAML config generator (if warranted)  
 **Effort**: 2–4 weeks  
 **Risk**: YAML config is a significant engineering investment — only worth it with 100+ stars
 

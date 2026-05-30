@@ -123,7 +123,7 @@
 ---
 
 ## Phase 3: OTA + Config-Driven Builds (Optional)
-**Goal**: Robust OTA working; explore YAML config if community demands it.  
+**Goal**: OTA working end-to-end; explore YAML config if community demands it.  
 **Effort**: 4–8 weeks  
 **Success criteria**: OTA tested and shipped for SCD40 device; clear signal on YAML demand
 
@@ -148,7 +148,7 @@
 ---
 
 ## Phase 4: Polish + Community Traction
-**Goal**: Project feels production-ready; community contributes regularly.  
+**Goal**: Project stable and well-documented; community contributes regularly.  
 **Effort**: Ongoing  
 **Success criteria**: 5 external contributors, in Z2M official supported list
 
