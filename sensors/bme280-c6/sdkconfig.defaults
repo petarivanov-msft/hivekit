@@ -1,0 +1,53 @@
+# Zigbee end-device defaults for HiveKit BME280
+# Apply with: idf.py build (auto-merged with sdkconfig)
+
+# Target
+CONFIG_IDF_TARGET="esp32c6"
+
+# Flash size — XIAO ESP32-C6 has 4MB
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+# Custom partition table (defines zb_storage / zb_fct / ota_0 / ota_1)
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+
+# Zigbee role: End Device
+CONFIG_ZB_ENABLED=y
+CONFIG_ZB_ED_ROLE=y
+CONFIG_ZB_ZCZR_ROLE=n
+
+# Zigbee NVS partitions (must match partitions.csv)
+CONFIG_ZB_NVRAM_PARTITION="zb_storage"
+CONFIG_ZB_NVRAM_FCT_PARTITION="zb_fct"
+
+# Power management — DISABLED (matching SCD40 baseline for stability)
+# Re-enable once joined-state stability is proven on real hardware.
+# CONFIG_PM_ENABLE=y
+# CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+
+# Log level: INFO
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# HiveKit Kconfig defaults
+CONFIG_HIVEKIT_BUTTON_ENABLED=y
+CONFIG_HIVEKIT_BUTTON_GPIO=9
+CONFIG_HIVEKIT_BUTTON_LONG_PRESS_TIME_MS=3000
+CONFIG_HIVEKIT_BUTTON_SHORT_PRESS_TIME_MS=100
+CONFIG_HIVEKIT_LED_ENABLED=y
+CONFIG_HIVEKIT_LED_GPIO=15
+CONFIG_HIVEKIT_LED_ACTIVE_HIGH=y
+
+# BME280 I2C — reuse same bus as SCD40 (SDA=22, SCL=23)
+CONFIG_HIVEKIT_BME280_SDA_GPIO=22
+CONFIG_HIVEKIT_BME280_SCL_GPIO=23
+# BME280 default address: SDO pin tied to GND → 0x76
+# If SDO tied to VDDIO (3.3V) → 0x77
+CONFIG_HIVEKIT_BME280_I2C_ADDR=0x76
+
+# FreeRTOS
+CONFIG_FREERTOS_HZ=1000
+
+# Disable Zigbee Green Power — frees scan budget, not used by Z2M
+CONFIG_ZB_ENABLE_ZGP=n
