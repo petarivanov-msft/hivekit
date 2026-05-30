@@ -316,7 +316,10 @@ esp_err_t hivekit_create_scd40_device(void)
     /* Add Relative Humidity cluster (0x0405) */
     /* TODO: verify ezb_zcl_rel_humidity_measurement_create_cluster_desc exists in your SDK version */
     ezb_zcl_rel_humidity_measurement_cluster_server_config_t rh_cfg = {
-        .measured_value     = 0,
+        /* Bug 3 fix: initialise to 0xFFFF (ZCL Relative Humidity "invalid" sentinel,
+         * per ZCL HA spec §4.4 table 4.4) so Z2M shows no value rather than 0%
+         * when a /get fires before the first measurement arrives (~5s after boot). */
+        .measured_value     = 0xFFFF,
         .min_measured_value = 0,
         .max_measured_value = 10000, /* 100.00% */
     };
@@ -458,7 +461,9 @@ esp_err_t hivekit_create_sht40_device(void)
      * SHT40 RH range: 0–100 %RH (datasheet §1.2).
      * SOURCE: ezbee/zcl/cluster/rel_humidity_measurement_desc.h */
     ezb_zcl_rel_humidity_measurement_cluster_server_config_t rh_cfg = {
-        .measured_value     = 0,
+        /* Bug 3 fix: initialise to 0xFFFF (ZCL invalid sentinel) so Z2M shows
+         * no value on /get before the first measurement arrives. */
+        .measured_value     = 0xFFFF,
         .min_measured_value = 0,
         .max_measured_value = 10000, /* 100.00% */
     };
@@ -564,7 +569,9 @@ esp_err_t hivekit_create_bme280_device(void)
     /* Add Relative Humidity cluster (0x0405) */
     /* SOURCE: ezbee/zcl/cluster/rel_humidity_measurement_desc.h */
     ezb_zcl_rel_humidity_measurement_cluster_server_config_t rh_cfg = {
-        .measured_value     = 0,
+        /* Bug 3 fix: initialise to 0xFFFF (ZCL invalid sentinel) so Z2M shows
+         * no value on /get before the first measurement arrives. */
+        .measured_value     = 0xFFFF,
         .min_measured_value = 0,
         .max_measured_value = 10000, /* 100.00% */
     };
