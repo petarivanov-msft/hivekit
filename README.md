@@ -1,141 +1,75 @@
 # HiveKit
 
-> ## 🚧 WIP — Experimental Branch In Play
->
-> **Branching model** (see `CONTRIBUTING.md`):
-> - **`main`** — stable. Latest stable tag: `v0.3.2-known-good`. Always safe to flash.
-> - **`dev`** — integration branch. Pre-release tags (`v0.3.3-beta.N`) cut from here.
-> - **`experiment/*`** — throwaway feature branches.
->
-> Current experiment: [`experiment/sleep-enable`](https://github.com/petarivanov-msft/hivekit/tree/experiment/sleep-enable) — fixes a parent-selection issue on multi-router meshes (the C6 currently only joins when physically next to the coordinator). It adds two `sdkconfig` lines:
->
-> - `CONFIG_IEEE802154_SLEEP_ENABLE=y` — extends `macResponseWaitTime` so slow routers (Aqara E1 wall switches) can ACK association requests inside the scan window.
-> - `CONFIG_ZB_ENABLE_ZGP=n` — disables Zigbee Green Power, freeing scan budget.
->
-> Background: `esp-zigbee-sdk` 2.x shortened per-channel scan dwell time and tightened association timing vs 1.5.x. Some routers (especially Aqara) take 35–42 symbols to ACK, landing outside the default 2.x window. Florian's working build ([`florianL21/zigbee-co2-sensor`](https://github.com/florianL21/zigbee-co2-sensor)) uses 1.5.1 + sleep-enable, which is why his pairs everywhere and ours doesn't.
->
-> Testing in progress — once verified the experiment will be merged into `dev` and tagged as a pre-release. Use `main` if you want a working build today.
+ESP32-C6 / H2 Zigbee sensor framework with native Zigbee2MQTT support.
 
 ![Build](https://github.com/petarivanov-msft/hivekit/actions/workflows/build.yml/badge.svg)
 
-ESP32-C6 / H2 Zigbee sensor framework with native Zigbee2MQTT support.
-
-> **Status: Phase 0 done (TBD after first flash), Phase 1 in progress.**
-> Not for general use yet — APIs are stabilising.
-
 ---
 
-## Goal
+## Quickstart — no terminal
 
-Make it trivial to build a Zigbee sensor on cheap ESP32-C6 hardware and have it work natively with **Zigbee2MQTT** out of the box — no coordinator-specific tricks, no unsupported device warnings.
-
-The gap this fills:
-- ESPHome's Zigbee component (2026.5) supports C6 binary sensors only — no CO2 / temp / humidity yet
-- One-off GitHub projects exist but reinvent the wheel per sensor; none target Z2M natively
-- No open project combines: shared library + sensor catalogue + bundled Z2M converters + OTA + web flasher
-
----
-
-## Quickstart for users (no terminal)
-
-**Flash a HiveKit sensor from your browser — no tools needed:**
+Flash a HiveKit sensor from your browser:
 
 👉 **[https://petarivanov-msft.github.io/hivekit/](https://petarivanov-msft.github.io/hivekit/)**
 
-Open in Chrome, Edge, or Opera on a **desktop**. Plug in your XIAO ESP32-C6, pick your sensor from the dropdown, and click **Install**. Done in ~60 seconds.
+Open in Chrome, Edge, or Opera on a **desktop**. Plug in your XIAO ESP32-C6, pick a sensor,
+click **Install**. Done in ~60 seconds.
 
-> 🧪 **Dev/pre-release builds:** [https://petarivanov-msft.github.io/hivekit/dev/](https://petarivanov-msft.github.io/hivekit/dev/)
+> Dev/pre-release builds: [https://petarivanov-msft.github.io/hivekit/dev/](https://petarivanov-msft.github.io/hivekit/dev/)
 
 ---
 
-## Quickstart for developers
+## Quickstart — developers
 
-### SCD40 on XIAO ESP32-C6
-
-**Hardware**: Seeed XIAO ESP32-C6 + Adafruit SCD-41 breakout
-```
-SDA → GPIO22
-SCL → GPIO23
-VCC → 3V3
-GND → GND
-```
-
-**Build**:
 ```bash
-# Requires ESP-IDF v5.5 (see sensors/scd40-c6/README.md for setup)
+git clone https://github.com/petarivanov-msft/hivekit.git && cd hivekit
 cd sensors/scd40-c6
 idf.py set-target esp32c6
-idf.py update-dependencies
-idf.py build
-```
-
-**Flash**:
-```bash
-# Hold BOOT button, plug USB, release BOOT
+idf.py update-dependencies && idf.py build
 idf.py -p /dev/ttyUSB0 flash monitor
 ```
 
-**Z2M converter**:
-```bash
-cp converters/hivekit-scd40.js /config/zigbee2mqtt/external_converters/
-# Restart Z2M, then enable Permit Join
-```
+Requires ESP-IDF v5.5. Full setup: [`sensors/scd40-c6/README.md`](sensors/scd40-c6/README.md).
 
-Full guide: [`sensors/scd40-c6/README.md`](sensors/scd40-c6/README.md)
+---
+
+## Repo layout
+
+| Path | Contents |
+|------|----------|
+| `components/hivekit/` | Shared ESP-IDF component — Zigbee init, clusters, reporting |
+| `sensors/scd40-c6/` | SCD40 CO2 + temp + humidity firmware for XIAO C6 |
+| `converters/` | Z2M external converters (drop into `external_converters/`) |
+| `flasher/` | Web flasher (GitHub Pages) |
+| `docs/` | Architecture, specs, plans |
+| `.github/workflows/` | CI — build + release pipeline |
+
+---
+
+## Branching
+
+- **`main`** — stable. Tagged releases. Always safe to flash.
+- **`dev`** — integration. Pre-release tags (`-beta`, `-rc`) cut from here.
+- **`experiment/*`** — throwaway. Merge into `dev` once proven; delete after merge.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the release flow.
 
 ---
 
 ## Roadmap
 
-| Phase | What | Status |
-|---|---|---|
-| 0 — PoC | SCD40 on C6 pairs with Z2M, 3 sensor values appear | 🟡 Hardware validation pending |
-| 1 — MVP | `hivekit` lib, SCD40 firmware, CI, Z2M converter | 🔵 In progress |
-| 1 — Flasher | Web flasher live at [petarivanov-msft.github.io/hivekit/](https://petarivanov-msft.github.io/hivekit/), CI release pipeline, merged-bin assets | ✅ Done |
-| 2 — Catalogue | BME280, SHT40, PIR, reed switch; H2 support | ⚪ Planned |
-| 3 — OTA + polish | OTA, community traction | ⚪ Planned |
-
-See [`docs/roadmap.md`](docs/roadmap.md) for the full breakdown.
-
----
-
-## Repo Layout
-
-```
-hivekit/
-├── components/
-│   └── hivekit/          # Shared ESP-IDF component (core, button, LED, reporting)
-├── sensors/
-│   └── scd40-c6/         # SCD40 + CO2 + temp + humidity firmware for XIAO C6
-├── converters/
-│   └── hivekit-scd40.js  # Z2M external converter (drop into external_converters/)
-├── docs/                 # Architecture, plans, specs
-├── flasher/              # Web flasher (live at https://petarivanov-msft.github.io/hivekit/)
-└── .github/workflows/    # CI — builds all firmware targets
-```
-
----
-
-## Architecture
-
-**Option A: thin shared component + per-sensor firmware**. See [`docs/architecture.md`](docs/architecture.md).
-
-Key design decisions:
-- One ESP-IDF project per sensor+board combo (small binaries, easy to understand)
-- Shared `hivekit` component handles all Zigbee boilerplate
-- ESP-Zigbee-SDK v2.x only (Apache-2.0, `ezb_*` APIs, no ZBOSS binary blob)
-- Z2M identity: `manufacturerName="HiveKit"`, `modelIdentifier="hk-scd40-c6"` etc.
+See [`docs/roadmap.md`](docs/roadmap.md).
 
 ---
 
 ## License
 
-Apache-2.0. ESP-Zigbee-SDK v2.0 is Apache-2.0, so pre-built firmware distribution is clean.
+Apache-2.0. See [`LICENSE`](LICENSE).
 
 ---
 
 ## Credits
 
-- [florianL21/zigbee-co2-sensor](https://github.com/florianL21/zigbee-co2-sensor) — SCD-4x on C6 with web flasher (ZHA only) — inspired wiring approach
+- [florianL21/zigbee-co2-sensor](https://github.com/florianL21/zigbee-co2-sensor) — SCD-4x on C6 with web flasher (ZHA only)
 - [Espressif/esp-zigbee-sdk](https://github.com/espressif/esp-zigbee-sdk) — Zigbee stack + examples
-- [Sensirion/embedded-i2c-scd4x](https://github.com/Sensirion/embedded-i2c-scd4x) — reference SCD4x I²C driver
+- [Sensirion/embedded-i2c-scd4x](https://github.com/Sensirion/embedded-i2c-scd4x) — SCD4x I²C driver
