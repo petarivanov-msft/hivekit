@@ -35,8 +35,8 @@
  *   esp_zigbee_config_t. If it's not found, construct manually:
  *     esp_zigbee_config_t config = {
  *       .device_config = {
- *         .device_type = EZB_NWK_DEVICE_TYPE_ED, // End Device
- *         .zed_config  = { .ed_timeout = ED_AGING_TIMEOUT_64MIN, .keep_alive = CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS },
+ *         .device_type = EZB_NWK_DEVICE_TYPE_ROUTER, // Mains-powered → Router
+ *         .zczr_config = { .max_children = 10 },
  *       },
  *       .platform_config = {
  *         .storage_partition_name = "zb_storage",
@@ -63,13 +63,18 @@
 #define ESP_ZIGBEE_STORAGE_PARTITION_NAME "zb_storage"
 #endif
 
-#define HIVEKIT_ZED_CONFIG() \
+/* HiveKit sensors are USB-powered and always-on, so they MUST be Zigbee
+ * Routers (ZR), not End Devices (ZED). A ZED that loses its parent silently
+ * queues outgoing reports forever (esp_zb_zcl_report_attr_cmd_req returns
+ * ESP_OK = queued, never delivered). Running as a Router avoids the parent
+ * concept entirely: the device participates in the mesh directly and any
+ * APS-level TX failure surfaces through the data-confirm callback. */
+#define HIVEKIT_ZR_CONFIG() \
     { \
-        .device_type         = EZB_NWK_DEVICE_TYPE_END_DEVICE, \
+        .device_type         = EZB_NWK_DEVICE_TYPE_ROUTER, \
         .install_code_policy = false, \
-        .zed_config = { \
-            .ed_timeout = EZB_NWK_ED_TIMEOUT_64MIN, \
-            .keep_alive = CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS, \
+        .zczr_config = { \
+            .max_children = 10, \
         }, \
     }
 
@@ -83,7 +88,7 @@
 
 #define HIVEKIT_ZIGBEE_DEFAULT_CONFIG() \
     { \
-        .device_config   = HIVEKIT_ZED_CONFIG(), \
+        .device_config   = HIVEKIT_ZR_CONFIG(), \
         .platform_config = HIVEKIT_PLATFORM_CONFIG(), \
     }
 
@@ -201,7 +206,7 @@ static void zigbee_main_task(void *pvParameters)
     esp_zigbee_config_t config = HIVEKIT_ZIGBEE_DEFAULT_CONFIG();
 
     ESP_ERROR_CHECK(esp_zigbee_init(&config));
-    ESP_LOGI(TAG, "Keep-alive: %d ms", CONFIG_HIVEKIT_ZIGBEE_KEEP_ALIVE_MS);
+    ESP_LOGI(TAG, "Zigbee role: ROUTER (mains-powered, no parent polling)");
 
     /* Init hivekit (registers signal handler, LED, etc.) */
     static const hivekit_config_t hk_cfg = {
