@@ -14,7 +14,8 @@ See [`phase0-flash-plan.md`](phase0-flash-plan.md).
 
 ## Phase 2 — Catalogue
 - BME280 ☆ scaffolded (untested — community verification welcome; see [issues](https://github.com/petarivanov-msft/hivekit/issues))
-- SHT40, PIR, reed switch, BME680, ESP32-H2 variants — queued
+- SHT40 ☆ scaffolded (untested — community verification welcome; see [issues](https://github.com/petarivanov-msft/hivekit/issues))
+- PIR, reed switch, BME680, ESP32-H2 variants — queued
 
 ## Phase 3 — Polish
 - OTA hardening, battery profiling, optional YAML config builds
