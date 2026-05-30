@@ -62,6 +62,9 @@ env:
   BOOTLOADER_OFFSET: "0x0"
   PARTITION_OFFSET: "0x8000"
   APP_OFFSET: "0x10000"
+  # Space-separated list of sensor IDs — drives loops in release and smoke-check steps.
+  # Add new sensors here; download-artifact steps must be updated in parallel.
+  SENSORS: "scd40-c6 bme280-c6"
 
 jobs:
   # ------------------------------------------------------------------
@@ -268,7 +271,7 @@ jobs:
         if: needs.channel.outputs.is_dev == 'true'
         run: |
           # Source files use display version; stable asset names always use dev-latest
-          for SENSOR in scd40-c6 bme280-c6; do
+          for SENSOR in ${{ env.SENSORS }}; do
             SRC_BIN="dist/hivekit-${SENSOR}-${{ needs.channel.outputs.version }}.bin"
             DEST_BIN="dist/hivekit-${SENSOR}-dev-latest.bin"
             if [ -f "${SRC_BIN}" ] && [ "${SRC_BIN}" != "${DEST_BIN}" ]; then
@@ -293,6 +296,16 @@ jobs:
           IS_STABLE="${{ needs.channel.outputs.is_stable }}"
           DEV_DISPLAY_VERSION="${{ needs.channel.outputs.dev_display_version }}"
 
+          # Build sensor binary file lists from SENSORS env var
+          SENSOR_BINS_STABLE=""
+          SENSOR_BINS_DEV=""
+          SENSOR_ASSET_NOTES=""
+          for SENSOR in $SENSORS; do
+            SENSOR_BINS_STABLE="${SENSOR_BINS_STABLE} dist/hivekit-${SENSOR}-${VERSION}.bin"
+            SENSOR_BINS_DEV="${SENSOR_BINS_DEV} dist/hivekit-${SENSOR}-dev-latest.bin"
+            SENSOR_ASSET_NOTES="${SENSOR_ASSET_NOTES}\n- hivekit-${SENSOR}-${VERSION}.bin — ${SENSOR} merged binary, flash at offset 0x0"
+          done
+
           if [[ "$IS_STABLE" == "true" ]]; then
             TAG="${VERSION}"
             TITLE="HiveKit ${VERSION}"
@@ -300,8 +313,7 @@ jobs:
               "## HiveKit ${VERSION} — Stable Release" \
               "" \
               "### Firmware assets" \
-              "- hivekit-scd40-c6-${VERSION}.bin — SCD40 merged binary, flash at offset 0x0" \
-              "- hivekit-bme280-c6-${VERSION}.bin — BME280 merged binary (☆ untested), flash at offset 0x0" \
+              "$(printf '%b' "${SENSOR_ASSET_NOTES}")" \
               "- Individual bootloader / partition-table / app .bin files per sensor" \
               "" \
               "### Web flasher" \
@@ -312,12 +324,12 @@ jobs:
             NOTES=$(cat /tmp/release_notes.md)
             # Stable: check first, create only if new, upload if already exists
             if gh release view "${TAG}" >/dev/null 2>&1; then
-              gh release upload "${TAG}" dist/hivekit-scd40-c6-${VERSION}.bin dist/hivekit-bme280-c6-${VERSION}.bin dist/parts/*/*.bin dist/parts/*/*.elf --clobber
+              gh release upload "${TAG}" $SENSOR_BINS_STABLE dist/parts/*/*.bin dist/parts/*/*.elf --clobber
             else
               gh release create "${TAG}" \
                 --title "${TITLE}" \
                 --notes "${NOTES}" \
-                dist/hivekit-scd40-c6-${VERSION}.bin dist/hivekit-bme280-c6-${VERSION}.bin dist/parts/*/*.bin dist/parts/*/*.elf
+                $SENSOR_BINS_STABLE dist/parts/*/*.bin dist/parts/*/*.elf
             fi
           else
             # Dev channel: single reusable dev-latest pre-release (delete + recreate)
@@ -340,7 +352,7 @@ jobs:
               --title "${TITLE}" \
               --notes "${NOTES}" \
               --prerelease \
-              dist/hivekit-scd40-c6-dev-latest.bin dist/hivekit-bme280-c6-dev-latest.bin dist/parts/*/*.bin dist/parts/*/*.elf
+              $SENSOR_BINS_DEV dist/parts/*/*.bin dist/parts/*/*.elf
           fi
 
       - name: Compute asset URL base
@@ -480,36 +492,50 @@ jobs:
         if: needs.channel.outputs.is_stable == 'true'
         run: |
           VERSION="${{ needs.channel.outputs.version }}"
-          URL="https://petarivanov-msft.github.io/hivekit/manifest-scd40-c6.json"
           # Retry up to 6 times with 10s delay to allow Pages CDN propagation
-          for attempt in 1 2 3 4 5 6; do
-            echo "Smoke check attempt ${attempt}/6..."
-            DEPLOYED_VER=$(curl -sf "${URL}" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])" 2>/dev/null)
-            if [[ "${DEPLOYED_VER}" == "${VERSION}" ]]; then
-              echo "Smoke check passed: ${URL} → version=${DEPLOYED_VER}"
-              exit 0
+          for SENSOR in ${{ env.SENSORS }}; do
+            URL="https://petarivanov-msft.github.io/hivekit/manifest-${SENSOR}.json"
+            echo "Smoke-checking ${URL}..."
+            OK=false
+            for attempt in 1 2 3 4 5 6; do
+              echo "  attempt ${attempt}/6..."
+              DEPLOYED_VER=$(curl -sf "${URL}" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])" 2>/dev/null)
+              if [[ "${DEPLOYED_VER}" == "${VERSION}" ]]; then
+                echo "  Smoke check passed: ${URL} → version=${DEPLOYED_VER}"
+                OK=true
+                break
+              fi
+              echo "  Not yet propagated (got '${DEPLOYED_VER}', want '${VERSION}'). Waiting 10s..."
+              [ $attempt -lt 6 ] && sleep 10
+            done
+            if [[ "$OK" != "true" ]]; then
+              echo "ERROR: Smoke check failed after 6 attempts. Expected '${VERSION}' at ${URL}" >&2
+              exit 1
             fi
-            echo "Not yet propagated (got '${DEPLOYED_VER}', want '${VERSION}'). Waiting 10s..."
-            [ $attempt -lt 6 ] && sleep 10
           done
-          echo "ERROR: Smoke check failed after 6 attempts. Expected '${VERSION}' at ${URL}" >&2
-          exit 1
 
       - name: Smoke-check dev deployment
         if: needs.channel.outputs.is_dev == 'true'
         run: |
           DEV_DISPLAY_VERSION="${{ needs.channel.outputs.dev_display_version }}"
-          URL="https://petarivanov-msft.github.io/hivekit/dev/manifest-scd40-c6-dev.json"
           # Retry up to 6 times with 10s delay to allow Pages CDN propagation
-          for attempt in 1 2 3 4 5 6; do
-            echo "Smoke check attempt ${attempt}/6..."
-            DEPLOYED_VER=$(curl -sf "${URL}" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])" 2>/dev/null)
-            if [[ "${DEPLOYED_VER}" == "${DEV_DISPLAY_VERSION}" ]]; then
-              echo "Smoke check passed: ${URL} → version=${DEPLOYED_VER}"
-              exit 0
+          for SENSOR in ${{ env.SENSORS }}; do
+            URL="https://petarivanov-msft.github.io/hivekit/dev/manifest-${SENSOR}-dev.json"
+            echo "Smoke-checking ${URL}..."
+            OK=false
+            for attempt in 1 2 3 4 5 6; do
+              echo "  attempt ${attempt}/6..."
+              DEPLOYED_VER=$(curl -sf "${URL}" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])" 2>/dev/null)
+              if [[ "${DEPLOYED_VER}" == "${DEV_DISPLAY_VERSION}" ]]; then
+                echo "  Smoke check passed: ${URL} → version=${DEPLOYED_VER}"
+                OK=true
+                break
+              fi
+              echo "  Not yet propagated (got '${DEPLOYED_VER}', want '${DEV_DISPLAY_VERSION}'). Waiting 10s..."
+              [ $attempt -lt 6 ] && sleep 10
+            done
+            if [[ "$OK" != "true" ]]; then
+              echo "ERROR: Smoke check failed after 6 attempts. Expected '${DEV_DISPLAY_VERSION}' at ${URL}" >&2
+              exit 1
             fi
-            echo "Not yet propagated (got '${DEPLOYED_VER}', want '${DEV_DISPLAY_VERSION}'). Waiting 10s..."
-            [ $attempt -lt 6 ] && sleep 10
           done
-          echo "ERROR: Smoke check failed after 6 attempts. Expected '${DEV_DISPLAY_VERSION}' at ${URL}" >&2
-          exit 1
