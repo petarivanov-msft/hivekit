@@ -48,6 +48,14 @@ CONFIG_HIVEKIT_SCD40_SCL_GPIO=23
 # FreeRTOS
 CONFIG_FREERTOS_HZ=1000
 
+# Task watchdog — guards against sensor_task stalls (Bug 2 fix).
+# Panic on WDT trigger so the chip resets cleanly rather than entering an
+# undefined hung state. Timeout must be longer than SENSOR_INTERVAL_MS (30s)
+# plus sensor re-init time (~6s) — 60s gives comfortable headroom.
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_PANIC=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=60
+
 # Sleep mode intentionally disabled for v0.3.3-beta baseline.
 # Re-add CONFIG_IEEE802154_SLEEP_ENABLE + CONFIG_PM_ENABLE + esp_zb_sleep_enable()
 # together in a future change once joined-state stability is proven.

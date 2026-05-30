@@ -11,4 +11,6 @@ idf_component_register(
         nvs_flash
         driver
         freertos
+        esp_driver_i2c
+        esp_system
 )

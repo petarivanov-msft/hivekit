@@ -168,6 +168,29 @@ esp_err_t scd40_init(void)
     return ESP_OK;
 }
 
+esp_err_t scd40_reinit(void)
+{
+    ESP_LOGW(TAG, "scd40_reinit: tearing down I²C bus and reinitialising (Bug 2 — I²C recovery)");
+
+    /* Try a graceful stop first; if the bus is hung this may fail — that's OK. */
+    if (s_dev_handle) {
+        (void)scd40_send_cmd(0x3F86); /* stop_periodic_measurement */
+        vTaskDelay(pdMS_TO_TICKS(200));
+        (void)i2c_master_bus_rm_device(s_dev_handle);
+        s_dev_handle = NULL;
+    }
+
+    if (s_bus_handle) {
+        (void)i2c_del_master_bus(s_bus_handle);
+        s_bus_handle = NULL;
+    }
+
+    /* Brief pause to let the I²C lines settle. */
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    return scd40_init();
+}
+
 esp_err_t scd40_read_measurement(hivekit_scd40_reading_t *reading)
 {
     ESP_RETURN_ON_FALSE(reading, ESP_ERR_INVALID_ARG, TAG, "NULL reading");

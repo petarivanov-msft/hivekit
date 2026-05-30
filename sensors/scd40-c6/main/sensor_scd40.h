@@ -36,6 +36,17 @@ esp_err_t scd40_init(void);
  */
 esp_err_t scd40_read_measurement(hivekit_scd40_reading_t *reading);
 
+/**
+ * @brief Re-initialise the SCD40 after repeated I²C errors (Bug 2 fix).
+ *
+ * Tears down the existing I²C bus handles, waits briefly, then calls
+ * scd40_init() again. Designed to recover from a hung I²C bus where the
+ * periodic measurement loop has stalled.
+ *
+ * @return ESP_OK on success.
+ */
+esp_err_t scd40_reinit(void);
+
 #ifdef __cplusplus
 }
 #endif
