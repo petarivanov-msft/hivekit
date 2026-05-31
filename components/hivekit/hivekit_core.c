@@ -501,8 +501,12 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
         },
         .payload.attr_id = EZB_ZCL_ATTR_TEMPERATURE_MEASUREMENT_MEASURED_VALUE_ID,
     };
-    ezb_zcl_report_attr_cmd_req(&temp_cmd);
-    s_tx_queued++;
+    if (ezb_zcl_report_attr_cmd_req(&temp_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req temp sync-failed");
+    }
 
     /* Humidity report */
     ezb_zcl_report_attr_cmd_t rh_cmd = {
@@ -516,8 +520,12 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
         },
         .payload.attr_id = EZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ID,
     };
-    ezb_zcl_report_attr_cmd_req(&rh_cmd);
-    s_tx_queued++;
+    if (ezb_zcl_report_attr_cmd_req(&rh_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req rh sync-failed");
+    }
 
     /* CO2 report */
     ezb_zcl_report_attr_cmd_t co2_cmd = {
@@ -531,8 +539,12 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
         },
         .payload.attr_id = EZB_ZCL_ATTR_CARBON_DIOXIDE_MEASUREMENT_MEASURED_VALUE_ID,
     };
-    ezb_zcl_report_attr_cmd_req(&co2_cmd);
-    s_tx_queued++;
+    if (ezb_zcl_report_attr_cmd_req(&co2_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req co2 sync-failed");
+    }
 
     esp_zigbee_lock_release();
 
@@ -661,8 +673,12 @@ esp_err_t hivekit_report_sht40(const hivekit_sht40_reading_t *reading)
         },
         .payload.attr_id = EZB_ZCL_ATTR_TEMPERATURE_MEASUREMENT_MEASURED_VALUE_ID,
     };
-    ezb_zcl_report_attr_cmd_req(&sht40_temp_cmd);
-    s_tx_queued++;
+    if (ezb_zcl_report_attr_cmd_req(&sht40_temp_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req sht40_temp sync-failed");
+    }
 
     /* Humidity report */
     ezb_zcl_report_attr_cmd_t sht40_rh_cmd = {
@@ -676,8 +692,12 @@ esp_err_t hivekit_report_sht40(const hivekit_sht40_reading_t *reading)
         },
         .payload.attr_id = EZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ID,
     };
-    ezb_zcl_report_attr_cmd_req(&sht40_rh_cmd);
-    s_tx_queued++;
+    if (ezb_zcl_report_attr_cmd_req(&sht40_rh_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req sht40_rh sync-failed");
+    }
 
     esp_zigbee_lock_release();
 
@@ -838,8 +858,12 @@ esp_err_t hivekit_report_bme280(const hivekit_bme280_reading_t *reading)
         },
         .payload.attr_id = EZB_ZCL_ATTR_TEMPERATURE_MEASUREMENT_MEASURED_VALUE_ID,
     };
-    ezb_zcl_report_attr_cmd_req(&bme280_temp_cmd);
-    s_tx_queued++;
+    if (ezb_zcl_report_attr_cmd_req(&bme280_temp_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req bme280_temp sync-failed");
+    }
 
     /* Humidity report */
     ezb_zcl_report_attr_cmd_t bme280_rh_cmd = {
@@ -853,8 +877,12 @@ esp_err_t hivekit_report_bme280(const hivekit_bme280_reading_t *reading)
         },
         .payload.attr_id = EZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ID,
     };
-    ezb_zcl_report_attr_cmd_req(&bme280_rh_cmd);
-    s_tx_queued++;
+    if (ezb_zcl_report_attr_cmd_req(&bme280_rh_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req bme280_rh sync-failed");
+    }
 
     /* Pressure report */
     ezb_zcl_report_attr_cmd_t bme280_press_cmd = {
@@ -868,8 +896,12 @@ esp_err_t hivekit_report_bme280(const hivekit_bme280_reading_t *reading)
         },
         .payload.attr_id = EZB_ZCL_ATTR_PRESSURE_MEASUREMENT_MEASURED_VALUE_ID,
     };
-    ezb_zcl_report_attr_cmd_req(&bme280_press_cmd);
-    s_tx_queued++;
+    if (ezb_zcl_report_attr_cmd_req(&bme280_press_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req bme280_press sync-failed");
+    }
 
     esp_zigbee_lock_release();
 
