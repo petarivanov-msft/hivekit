@@ -51,6 +51,10 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "esp_system.h"
+#include "esp_timer.h"
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "esp_zigbee.h"
 #include "ezbee/bdb.h"
@@ -84,6 +88,11 @@ static const char *TAG = "hivekit_core";
 
 static const hivekit_config_t *s_cfg = NULL;
 static void (*s_signal_cb)(uint16_t signal_type, const void *params) = NULL;
+
+/* ── TX debug counters ────────────────────────────────────────────────────── */
+static uint32_t s_tx_queued    = 0; /* incremented once per hivekit_report_*() call */
+static uint32_t s_tx_confirmed = 0; /* incremented in APS confirm cb on success     */
+static uint32_t s_tx_failed    = 0; /* incremented in APS confirm cb on failure     */
 
 /* ── Scheduler-alarm callbacks ───────────────────────────────────────────── */
 
@@ -242,6 +251,7 @@ static void hivekit_aps_data_confirm_cb(const ezb_apsde_data_confirm_t *confirm)
         return;
     }
     if (confirm->status != 0) {
+        s_tx_failed++;
         ESP_LOGW(TAG,
                  "APS TX failed: cluster=0x%04x ep=%u->%u status=0x%02x len=%u",
                  (unsigned)confirm->cluster_id,
@@ -250,11 +260,28 @@ static void hivekit_aps_data_confirm_cb(const ezb_apsde_data_confirm_t *confirm)
                  (unsigned)confirm->status,
                  (unsigned)confirm->asdu_length);
     } else {
-        ESP_LOGD(TAG,
+        s_tx_confirmed++;
+        ESP_LOGI(TAG,
                  "APS TX ok: cluster=0x%04x ep=%u->%u",
                  (unsigned)confirm->cluster_id,
                  (unsigned)confirm->src_endpoint,
                  (unsigned)confirm->dst_endpoint);
+    }
+}
+
+/* ── TX heartbeat task ────────────────────────────────────────────────────── */
+
+static void tx_heartbeat_task(void *pvParameters)
+{
+    (void)pvParameters;
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(5 * 60 * 1000));
+        uint32_t uptime_s = (uint32_t)(esp_timer_get_time() / 1000000ULL);
+        ESP_LOGI(TAG, "TX heartbeat: queued=%u confirmed=%u failed=%u uptime=%us",
+                 (unsigned)s_tx_queued,
+                 (unsigned)s_tx_confirmed,
+                 (unsigned)s_tx_failed,
+                 (unsigned)uptime_s);
     }
 }
 
@@ -275,6 +302,20 @@ esp_err_t hivekit_init(const hivekit_config_t *cfg)
      * surface in the log instead of being swallowed.
      * SOURCE: ezbee/aps.h — ezb_apsde_data_confirm_handler_register */
     ezb_apsde_data_confirm_handler_register(hivekit_aps_data_confirm_cb);
+
+    /* Start TX heartbeat task — logs queued/confirmed/failed/uptime every 5 min.
+     * Priority tskIDLE_PRIORITY+1 keeps it low enough not to affect sensor tasks.
+     * Non-fatal: a failure here only means heartbeat lines won't appear in logs. */
+    TaskHandle_t heartbeat_handle = NULL;
+    BaseType_t task_ret = xTaskCreate(tx_heartbeat_task,
+                                      "tx_heartbeat",
+                                      2048,
+                                      NULL,
+                                      tskIDLE_PRIORITY + 1,
+                                      &heartbeat_handle);
+    if (task_ret != pdPASS) {
+        ESP_LOGW(TAG, "Failed to create tx_heartbeat_task (non-fatal)");
+    }
 
     /* TODO (Phase 1): init LED driver here using espressif/led_indicator */
     /* For now, LED ops are stubs (see hivekit_led.c) */
@@ -445,6 +486,7 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
     ESP_LOGI(TAG, "ZCL report results: temp=0x%x humidity=0x%x co2=0x%x (co2_raw=%.6f from %.0f ppm)",
              t_err, h_err, c_err, co2_val, reading->co2_ppm);
 
+    s_tx_queued++;
     return ESP_OK;
 }
 
@@ -556,6 +598,7 @@ esp_err_t hivekit_report_sht40(const hivekit_sht40_reading_t *reading)
     ESP_LOGI(TAG, "[sht40] ZCL: temp=0x%x rh=0x%x (%.2f°C, %.1f%%)",
              t_err, h_err, reading->temperature_c, reading->humidity_pct);
 
+    s_tx_queued++;
     return ESP_OK;
 }
 
@@ -700,5 +743,6 @@ esp_err_t hivekit_report_bme280(const hivekit_bme280_reading_t *reading)
              t_err, h_err, p_err,
              reading->temperature_c, reading->humidity_pct, reading->pressure_hpa);
 
+    s_tx_queued++;
     return ESP_OK;
 }
