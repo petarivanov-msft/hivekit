@@ -111,4 +111,21 @@ R5. **Counter increment ordering** — `s_tx_queued` is bumped after `report_att
 - This plan file (T1 investigation log appendix)
 
 ## Investigation log
-_(Filled in during T1. Empty until then.)_
+
+**SDK version:** `espressif/esp-zigbee-lib` 2.0.1 (from `/tmp/ezsdk/components/esp-zigbee-lib/idf_component.yml`;
+component manifest pins `~2.0.0` so 2.0.x patch versions are accepted).
+
+**APSDE confirm consumer behaviour:** Header `ezbee/aps.h` carries the note
+`"If the callback is registered by the application, the application is responsible for handling APSDE confirm."` —
+consistent with a replacement (not augment) semantic. No separate default internal consumer is exported from the header;
+the SDK does not expose a `ezb_apsde_data_confirm_handler_get_default()` or similar. Removing the registration
+leaves APSDE confirm unhandled by user code, returning to whatever the stack's own upper-layer flow does (ZCL stack).
+This is safe for our purpose because the per-command `cnf_ctx.cb` path operates above APSDE and fires independently.
+
+**Per-command confirm path:** `ezbee/af.h` defines `ezb_af_user_cnf_t` (status, tsn, dst_addr, src_ep, dst_ep,
+cluster_id, profile_id) and `ezb_af_user_cnf_callback_t`. `ezbee/zcl/zcl_common.h` typedefs
+`ezb_zcl_cmd_cnf_ctx_t = ezb_af_user_cnf_ctx_t` and `ezb_zcl_cmd_ctrl_t` includes `cnf_ctx` as its last field.
+`ezbee/zcl/zcl_general_cmd.h` documents `ezb_zcl_report_attr_cmd_req()` with the docstring
+`"The response will be delivered via the callback specified in cmd_req->cmd_ctrl.cnf_ctx"` —
+confirming `cnf_ctx.cb` is honoured for report-attr. No sample code found in the ezsdk tree for this specific
+combination; doc string evidence is sufficient. Empirical proof deferred to T6 (hardware validation).
