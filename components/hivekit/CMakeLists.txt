@@ -12,6 +12,7 @@ idf_component_register(
     REQUIRES
         nvs_flash
         freertos
+        esp_timer
         # espressif/button and espressif/led_indicator are declared in
         # the sensor firmware's idf_component.yml and are available via
         # IDF Component Manager. They show up as managed_components/ at
