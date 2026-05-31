@@ -26,6 +26,7 @@
  *                                             → ezbee/af.h
  *   ezb_zcl_cmd_ctrl_t.cnf_ctx               → ezbee/zcl/zcl_common.h
  *   ezb_zcl_report_attr_cmd_req()            → ezbee/zcl/zcl_general_cmd.h
+ *   ezb_zcl_report_attr_cmd_t               → ezbee/zcl/zcl_general_cmd.h
  *   ezb_nwk_get_panid()                     → ezbee/nwk.h
  *   ezb_nwk_get_current_channel()           → ezbee/nwk.h
  *   ezb_nwk_get_short_address()             → ezbee/nwk.h
