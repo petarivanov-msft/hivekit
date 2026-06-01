@@ -32,6 +32,9 @@
 
 static const char *TAG = "hivekit_reporting";
 
+/* Defined in hivekit_core.c — incremented here on every queued report. */
+extern uint32_t s_tx_queued;
+
 /**
  * @brief Force-send a ZCL attribute report for a given attribute.
  *
@@ -61,6 +64,7 @@ esp_err_t hivekit_force_report(uint8_t ep_id, uint16_t cluster_id, uint16_t attr
     };
 
     esp_zigbee_lock_acquire(portMAX_DELAY);
+    s_tx_queued++;
     /* SOURCE: ezbee/zcl/zcl_reporting.h — ezb_zcl_report_attr_cmd_req() */
     ezb_err_t ret = ezb_zcl_report_attr_cmd_req(&cmd);
     esp_zigbee_lock_release();

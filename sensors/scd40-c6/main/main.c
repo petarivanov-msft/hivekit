@@ -52,6 +52,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_task_wdt.h"
+#include "esp_timer.h"
 
 #include "esp_zigbee.h"
 #include "hivekit.h"
@@ -93,6 +94,12 @@
     }
 
 static const char *TAG = "hivekit_main";
+
+/* ── Freeze-diagnostic hooks (defined in hivekit_core.c, PR #14) ────────────────── */
+extern volatile uint32_t g_sensor_loops_completed;
+extern volatile uint32_t g_last_sensor_ok_ms;
+extern volatile uint32_t g_last_report_call_ms;
+/* g_last_ezb_ok_ms is set in hivekit_core.c confirm callback — not touched here */
 
 #define HIVEKIT_MANUFACTURER "HiveKit"
 #define HIVEKIT_MODEL        "hk-scd40-c6"
@@ -159,6 +166,8 @@ static void sensor_task(void *pvParameters)
              * but we read every 30 s so this should not normally happen. Log
              * at debug level only. */
             ESP_LOGD(TAG, "SCD40 data not ready yet (skipping this cycle)");
+            /* DIAG: count as a completed loop iteration (loop is alive, just no data) */
+            g_sensor_loops_completed++;
             continue;
         }
 
@@ -184,17 +193,31 @@ static void sensor_task(void *pvParameters)
                     /* Keep retrying; WDT will catch a true permanent stall. */
                 }
             }
+            /* DIAG: count error paths too — loop counter still advances on errors */
+            g_sensor_loops_completed++;
             continue;
         }
 
         /* Successful read — reset error counter. */
         consec_errors = 0;
 
+        /* DIAG hook 1: last clean-read timestamp */
+        g_last_sensor_ok_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+
         ESP_LOGI(TAG, "SCD40: CO2=%.0f ppm  T=%.2f °C  RH=%.1f %%",
                  reading.co2_ppm, reading.temperature_c, reading.humidity_pct);
 
         hivekit_led_set_pattern(HIVEKIT_LED_SINGLE_FLASH);
+
+        /* DIAG hook 2: last call-to-report timestamp (set BEFORE the call so we
+         * detect a hang inside hivekit_report_scd40 — useful if the Zigbee lock
+         * blocks indefinitely). */
+        g_last_report_call_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
         hivekit_report_scd40(&reading);
+
+        /* DIAG hook 3: loop completed (post-report; if hivekit_report_scd40
+         * blocks, this counter will NOT advance — gives us a 4th diagnosis case). */
+        g_sensor_loops_completed++;
     }
 }
 

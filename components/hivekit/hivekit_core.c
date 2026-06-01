@@ -49,6 +49,7 @@
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "nvs_flash.h"
 #include "esp_system.h"
 
@@ -66,6 +67,9 @@
 #include "ezbee/zcl/cluster/rel_humidity_measurement_desc.h"
 #include "ezbee/zcl/cluster/pressure_measurement_desc.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 /* ── esp_zb_scheduler_alarm shims ───────────────────────────────────────────
  * These symbols are exported by libesp-zigbee (compat layer) in SDK v2 but
  * their header declarations live in compat/esp_zigbee_core.h which requires
@@ -79,6 +83,22 @@ void esp_zb_scheduler_alarm(esp_zb_callback_t cb, uint8_t param, uint32_t time);
 void esp_zb_scheduler_alarm_cancel(esp_zb_callback_t cb, uint8_t param);
 
 static const char *TAG = "hivekit_core";
+
+/* ── TX debug counters ────────────────────────────────────────────────────── */
+uint32_t s_tx_queued    = 0; /* incremented once per ezb_zcl_report_attr_cmd_req() call */
+static uint32_t s_tx_confirmed = 0; /* incremented in ZCL cmd confirm cb on success            */
+static uint32_t s_tx_failed    = 0; /* incremented in ZCL cmd confirm cb on failure             */
+
+/* ── Freeze-diagnostic counters (PR #14) ──────────────────────────────────
+ * Written from a single task each (sensor_task or Zigbee confirm callback).
+ * 32-bit naturally aligned stores are atomic on ESP32-C6 (RISC-V RV32).
+ * volatile prevents register caching across heartbeat reads.
+ * Timestamps are esp_timer_get_time() / 1000ULL (ms since boot, wraps ~49d).
+ */
+volatile uint32_t g_sensor_loops_completed = 0; /* monotonic loop counter       */
+volatile uint32_t g_last_sensor_ok_ms      = 0; /* ms when last clean read done */
+volatile uint32_t g_last_report_call_ms    = 0; /* ms when hivekit_report_scd40 entered */
+volatile uint32_t g_last_ezb_ok_ms         = 0; /* ms when any ZCL confirm ok   */
 
 /* ── Internal state ───────────────────────────────────────────────────────── */
 
@@ -242,6 +262,7 @@ static void hivekit_aps_data_confirm_cb(const ezb_apsde_data_confirm_t *confirm)
         return;
     }
     if (confirm->status != 0) {
+        s_tx_failed++;
         ESP_LOGW(TAG,
                  "APS TX failed: cluster=0x%04x ep=%u->%u status=0x%02x len=%u",
                  (unsigned)confirm->cluster_id,
@@ -250,11 +271,43 @@ static void hivekit_aps_data_confirm_cb(const ezb_apsde_data_confirm_t *confirm)
                  (unsigned)confirm->status,
                  (unsigned)confirm->asdu_length);
     } else {
+        s_tx_confirmed++;
+        g_last_ezb_ok_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
         ESP_LOGD(TAG,
                  "APS TX ok: cluster=0x%04x ep=%u->%u",
                  (unsigned)confirm->cluster_id,
                  (unsigned)confirm->src_endpoint,
                  (unsigned)confirm->dst_endpoint);
+    }
+}
+
+/* ── TX heartbeat task ────────────────────────────────────────────────────── */
+
+static void tx_heartbeat_task(void *pvParameters)
+{
+    (void)pvParameters;
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(5 * 60 * 1000));
+        uint32_t uptime_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+        uint32_t uptime_s  = uptime_ms / 1000;
+
+        /* Snapshot volatile diag counters once (no lock — diagnostic only). */
+        uint32_t loops      = g_sensor_loops_completed;
+        uint32_t last_ok_s  = g_last_sensor_ok_ms   / 1000;
+        uint32_t last_rep_s = g_last_report_call_ms / 1000;
+        uint32_t last_ezb_s = g_last_ezb_ok_ms      / 1000;
+
+        ESP_LOGI(TAG,
+            "HK heartbeat: uptime=%us loops=%u last_ok=%us last_report=%us "
+            "last_ezb=%us queued=%u confirmed=%u failed=%u",
+            (unsigned)uptime_s,
+            (unsigned)loops,
+            (unsigned)last_ok_s,
+            (unsigned)last_rep_s,
+            (unsigned)last_ezb_s,
+            (unsigned)s_tx_queued,
+            (unsigned)s_tx_confirmed,
+            (unsigned)s_tx_failed);
     }
 }
 
@@ -275,6 +328,9 @@ esp_err_t hivekit_init(const hivekit_config_t *cfg)
      * surface in the log instead of being swallowed.
      * SOURCE: ezbee/aps.h — ezb_apsde_data_confirm_handler_register */
     ezb_apsde_data_confirm_handler_register(hivekit_aps_data_confirm_cb);
+
+    /* Start the 5-min TX heartbeat task (PR #14 freeze diagnostics). */
+    xTaskCreate(tx_heartbeat_task, "tx_heartbeat", 2048, NULL, 3, NULL);
 
     /* TODO (Phase 1): init LED driver here using espressif/led_indicator */
     /* For now, LED ops are stubs (see hivekit_led.c) */
