@@ -99,6 +99,17 @@ static uint32_t s_tx_queued    = 0; /* incremented once per ezb_zcl_report_attr_
 static uint32_t s_tx_confirmed = 0; /* incremented in ZCL cmd confirm cb on success            */
 static uint32_t s_tx_failed    = 0; /* incremented in ZCL cmd confirm cb on failure             */
 
+/* ── Freeze-diagnostic counters (PR #14) ──────────────────────────────────
+ * Written from a single task each (sensor_task or Zigbee confirm callback).
+ * 32-bit naturally aligned stores are atomic on ESP32-C6 (RISC-V RV32).
+ * volatile prevents register caching across heartbeat reads.
+ * Timestamps are esp_timer_get_time() / 1000ULL (ms since boot, wraps ~49d).
+ */
+volatile uint32_t g_sensor_loops_completed = 0; /* monotonic loop counter       */
+volatile uint32_t g_last_sensor_ok_ms      = 0; /* ms when last clean read done */
+volatile uint32_t g_last_report_call_ms    = 0; /* ms when hivekit_report_scd40 entered */
+volatile uint32_t g_last_ezb_ok_ms         = 0; /* ms when any ZCL confirm ok   */
+
 /* ── Scheduler-alarm callbacks ───────────────────────────────────────────── */
 
 /* Fired by esp_zb_scheduler_alarm() ~3 s after network steering fails.
@@ -256,6 +267,7 @@ void hivekit_zcl_cmd_confirm_cb(ezb_af_user_cnf_t *cnf, void *user_ctx)
     }
     if (cnf->status == 0) {
         s_tx_confirmed++;
+        g_last_ezb_ok_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
         ESP_LOGI(TAG, "ZCL TX ok: cluster=0x%04x ep=%u->%u tsn=%u",
                  (unsigned)cnf->cluster_id,
                  (unsigned)cnf->src_ep,
@@ -279,12 +291,26 @@ static void tx_heartbeat_task(void *pvParameters)
     (void)pvParameters;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(5 * 60 * 1000));
-        uint32_t uptime_s = (uint32_t)(esp_timer_get_time() / 1000000ULL);
-        ESP_LOGI(TAG, "TX heartbeat: queued=%u confirmed=%u failed=%u uptime=%us",
-                 (unsigned)s_tx_queued,
-                 (unsigned)s_tx_confirmed,
-                 (unsigned)s_tx_failed,
-                 (unsigned)uptime_s);
+        uint32_t uptime_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+        uint32_t uptime_s  = uptime_ms / 1000;
+
+        /* Snapshot volatile diag counters once (no lock — diagnostic only). */
+        uint32_t loops      = g_sensor_loops_completed;
+        uint32_t last_ok_s  = g_last_sensor_ok_ms   / 1000;
+        uint32_t last_rep_s = g_last_report_call_ms / 1000;
+        uint32_t last_ezb_s = g_last_ezb_ok_ms      / 1000;
+
+        ESP_LOGI(TAG,
+            "HK heartbeat: uptime=%us loops=%u last_ok=%us last_report=%us "
+            "last_ezb=%us queued=%u confirmed=%u failed=%u",
+            (unsigned)uptime_s,
+            (unsigned)loops,
+            (unsigned)last_ok_s,
+            (unsigned)last_rep_s,
+            (unsigned)last_ezb_s,
+            (unsigned)s_tx_queued,
+            (unsigned)s_tx_confirmed,
+            (unsigned)s_tx_failed);
     }
 }
 
