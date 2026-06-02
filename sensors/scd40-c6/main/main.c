@@ -48,6 +48,7 @@
 #include <stdio.h>
 #include "esp_log.h"
 #include "esp_err.h"
+#include "esp_system.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -145,6 +146,7 @@ static void sensor_task(void *pvParameters)
     ESP_LOGI(TAG, "SCD40 ready, entering measurement loop (interval=%dms)", SENSOR_INTERVAL_MS);
 
     int consec_errors = 0;
+    static uint32_t s_iter = 0;
 
     while (1) {
         /* Reset the watchdog every iteration — proves the loop is alive.
@@ -157,6 +159,13 @@ static void sensor_task(void *pvParameters)
         /* Reset watchdog again after the delay — the large sleep alone could
          * timeout if SENSOR_WDT_TIMEOUT_S is shorter than the interval. */
         (void)esp_task_wdt_reset();
+
+        s_iter++;
+        ESP_LOGI(TAG, "sensor loop: iter=%u heap=%u min_heap=%u t=%ums",
+                 (unsigned)s_iter,
+                 (unsigned)esp_get_free_heap_size(),
+                 (unsigned)esp_get_minimum_free_heap_size(),
+                 (unsigned)(esp_timer_get_time() / 1000ULL));
 
         hivekit_scd40_reading_t reading;
         err = scd40_read_measurement(&reading);
