@@ -9,7 +9,7 @@
  *
  * API VERIFICATION (2026-05-17):
  *   ezb_zcl_set_attr_value()     → ezbee/zcl/zcl_core.h (included via ezbee/zcl.h)
- *   ezb_zcl_report_attr_cmd_req()→ ezbee/zcl/zcl_general_cmd.h
+ *   ezb_zcl_report_attr_cmd_req()→ ezbee/zcl/zcl_reporting.h
  *   EZB_ZCL_CLUSTER_SERVER       → ezbee/zcl/zcl_type.h
  *   EZB_ZCL_STD_MANUF_CODE       → ezbee/zcl/zcl_type.h
  *   EZB_ZCL_CMD_DIRECTION_TO_CLI → ezbee/zcl/zcl_type.h
@@ -53,7 +53,7 @@ void hivekit_zcl_cmd_confirm_cb(ezb_af_user_cnf_t *cnf, void *user_ctx);
  */
 esp_err_t hivekit_force_report(uint8_t ep_id, uint16_t cluster_id, uint16_t attr_id)
 {
-    /* SOURCE: ezbee/zcl/zcl_general_cmd.h — ezb_zcl_report_attr_cmd_t */
+    /* SOURCE: ezbee/zcl/zcl_reporting.h — ezb_zcl_report_attr_cmd_t */
     ezb_zcl_report_attr_cmd_t cmd = {
         .cmd_ctrl = {
             .fc.direction       = EZB_ZCL_CMD_DIRECTION_TO_CLI,
@@ -73,7 +73,7 @@ esp_err_t hivekit_force_report(uint8_t ep_id, uint16_t cluster_id, uint16_t attr
     };
 
     esp_zigbee_lock_acquire(portMAX_DELAY);
-    /* SOURCE: ezbee/zcl/zcl_general_cmd.h — ezb_zcl_report_attr_cmd_req() */
+    /* SOURCE: ezbee/zcl/zcl_reporting.h — ezb_zcl_report_attr_cmd_req() */
     ezb_err_t ret = ezb_zcl_report_attr_cmd_req(&cmd);
     esp_zigbee_lock_release();
 
