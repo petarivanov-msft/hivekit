@@ -9,7 +9,7 @@
  *
  * API VERIFICATION (2026-05-17):
  *   ezb_zcl_set_attr_value()     → ezbee/zcl/zcl_core.h (included via ezbee/zcl.h)
- *   ezb_zcl_report_attr_cmd_req()→ ezbee/zcl/zcl_general_cmd.h
+ *   ezb_zcl_report_attr_cmd_req()→ ezbee/zcl/zcl_reporting.h
  *   EZB_ZCL_CLUSTER_SERVER       → ezbee/zcl/zcl_type.h
  *   EZB_ZCL_STD_MANUF_CODE       → ezbee/zcl/zcl_type.h
  *   EZB_ZCL_CMD_DIRECTION_TO_CLI → ezbee/zcl/zcl_type.h
@@ -29,14 +29,8 @@
 #include "ezbee/zcl.h"
 #include "ezbee/zcl/zcl_common.h"
 #include "ezbee/zcl/zcl_reporting.h"
-#include "ezbee/zcl/zcl_general_cmd.h"
 
 static const char *TAG = "hivekit_reporting";
-
-/* Forward declaration: defined in hivekit_core.c.
- * Shared confirm callback for all ZCL report-attr commands.
- * SOURCE: ezbee/af.h — ezb_af_user_cnf_t, ezb_af_user_cnf_callback_t */
-void hivekit_zcl_cmd_confirm_cb(ezb_af_user_cnf_t *cnf, void *user_ctx);
 
 /**
  * @brief Force-send a ZCL attribute report for a given attribute.
@@ -53,19 +47,13 @@ void hivekit_zcl_cmd_confirm_cb(ezb_af_user_cnf_t *cnf, void *user_ctx);
  */
 esp_err_t hivekit_force_report(uint8_t ep_id, uint16_t cluster_id, uint16_t attr_id)
 {
-    /* SOURCE: ezbee/zcl/zcl_general_cmd.h — ezb_zcl_report_attr_cmd_t */
+    /* SOURCE: ezbee/zcl/zcl_reporting.h — ezb_zcl_report_attr_cmd_t */
     ezb_zcl_report_attr_cmd_t cmd = {
         .cmd_ctrl = {
             .fc.direction       = EZB_ZCL_CMD_DIRECTION_TO_CLI,
             .dst_addr.addr_mode = EZB_ADDR_MODE_NONE, /* broadcast / binding */
             .src_ep             = ep_id,
             .cluster_id         = cluster_id,
-            /* Wire confirm callback so manual force-reports are tracked
-             * on the same s_tx_confirmed / s_tx_failed path as
-             * periodic sensor reports.
-             * SOURCE: ezbee/af.h — ezb_af_user_cnf_callback_t */
-            .cnf_ctx.cb         = hivekit_zcl_cmd_confirm_cb,
-            .cnf_ctx.user_ctx   = NULL,
         },
         .payload = {
             .attr_id = attr_id,
@@ -73,7 +61,7 @@ esp_err_t hivekit_force_report(uint8_t ep_id, uint16_t cluster_id, uint16_t attr
     };
 
     esp_zigbee_lock_acquire(portMAX_DELAY);
-    /* SOURCE: ezbee/zcl/zcl_general_cmd.h — ezb_zcl_report_attr_cmd_req() */
+    /* SOURCE: ezbee/zcl/zcl_reporting.h — ezb_zcl_report_attr_cmd_req() */
     ezb_err_t ret = ezb_zcl_report_attr_cmd_req(&cmd);
     esp_zigbee_lock_release();
 

@@ -4,15 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-### Fixed
-- **ZCL TX counters now use per-command confirm callback**: `s_tx_confirmed` / `s_tx_failed` are
-  now incremented via a `cnf_ctx.cb` (`ezb_af_user_cnf_callback_t`) wired on each
-  `ezb_zcl_report_attr_cmd_req()` call, replacing the APSDE-DATA confirm handler that suppressed
-  the SDK’s internal APSDE consumer and caused counters to remain stuck at zero. On failure the
-  callback logs ZCL cluster ID and status code. Heartbeat now reflects actual delivery
-  success/failure with cluster + ZCL status code.
+### Reverted
+- **PR #13 (ZCL per-command confirm callback) reverted**: the explicit
+  `ezb_zcl_report_attr_cmd_req()` calls added in `2fe0fb7` failed synchronously on
+  every report (observed on `dev-87853ff` flash 2026-06-02) because the call requires
+  a resolved destination, but `dst_addr.addr_mode = EZB_ADDR_MODE_NONE` relies on the
+  binding table which is not yet populated at the time periodic reports start firing.
+  Net result: nothing reached the APS layer post-pair, only MAC/LQI traffic. Restored
+  the v0.3.6 pattern: `ezb_zcl_set_attr_value()` only, letting the SDK auto-reporting
+  (configured by ZHA via `Configure Reporting` after interview) drive the air traffic,
+  with the APSDE-DATA confirm handler tracking outcomes. `g_last_ezb_ok_ms` from PR #15
+  is now updated from the APSDE confirm success path so the freeze heartbeat keeps working.
+  Reverts `2fe0fb7`, `01ff4c0`, `df4f80e`. PR #12 (TX counters + heartbeat) and PR #15
+  (freeze diagnostic counters) remain intact.
 
 ### Added
+- **APS confirm success promoted to INFO**: Successful APS data-confirm callbacks now log at
+  `ESP_LOGI` (was `ESP_LOGD`/silent) so every over-the-air TX outcome is visible in the serial
+  log without enabling verbose logging.
 - **TX debug counters**: Three module-level `uint32_t` counters (`s_tx_queued`, `s_tx_confirmed`,
   `s_tx_failed`) track report submissions and APS outcomes across the lifetime of a firmware run.
   Counters reset on reboot; no NVS persistence.
