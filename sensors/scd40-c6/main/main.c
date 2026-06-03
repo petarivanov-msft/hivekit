@@ -136,11 +136,22 @@ static void sensor_task(void *pvParameters)
     /* Init I²C + SCD40 sensor. May block while sensor warms up. */
     err = scd40_init();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "SCD40 init failed: %s — sensor task exiting", esp_err_to_name(err));
+        /* Do NOT silently delete the task — a silent exit means the measurement
+         * loop never runs and no output appears for 5+ minutes, making the
+         * failure invisible in serial captures (observed 2026-06-03, mem.py #8971).
+         *
+         * Instead: emit a loud banner, hold the error LED, wait 5 s so the
+         * serial monitor can capture the log, then reboot.  The device has a
+         * chance to recover on next power cycle (sensor VDD will have settled). */
+        ESP_LOGE(TAG, "╔══════════════════════════════════════════════════╗");
+        ESP_LOGE(TAG, "║  SCD40 INIT FAILED — rebooting in 5s            ║");
+        ESP_LOGE(TAG, "║  error: %-40s  ║", esp_err_to_name(err));
+        ESP_LOGE(TAG, "╚══════════════════════════════════════════════════╝");
         hivekit_led_set_pattern(HIVEKIT_LED_ERROR);
         esp_task_wdt_delete(NULL);
-        vTaskDelete(NULL);
-        return;
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        esp_restart();
+        return; /* unreachable; satisfies compiler */
     }
 
     ESP_LOGI(TAG, "SCD40 ready, entering measurement loop (interval=%dms)", SENSOR_INTERVAL_MS);
