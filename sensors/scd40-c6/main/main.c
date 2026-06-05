@@ -48,10 +48,12 @@
 #include <stdio.h>
 #include "esp_log.h"
 #include "esp_err.h"
+#include "esp_system.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_task_wdt.h"
+#include "esp_timer.h"
 
 #include "esp_zigbee.h"
 #include "hivekit.h"
@@ -94,6 +96,12 @@
 
 static const char *TAG = "hivekit_main";
 
+/* ── Freeze-diagnostic hooks (defined in hivekit_core.c, PR #14) ─────────── */
+extern volatile uint32_t g_sensor_loops_completed;
+extern volatile uint32_t g_last_sensor_ok_ms;
+extern volatile uint32_t g_last_report_call_ms;
+/* g_last_ezb_ok_ms is set in hivekit_core.c confirm callback — not touched here */
+
 #define HIVEKIT_MANUFACTURER "HiveKit"
 #define HIVEKIT_MODEL        "hk-scd40-c6"
 #define HIVEKIT_FW_VERSION   "1.0.0-phase1"
@@ -128,16 +136,28 @@ static void sensor_task(void *pvParameters)
     /* Init I²C + SCD40 sensor. May block while sensor warms up. */
     err = scd40_init();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "SCD40 init failed: %s — sensor task exiting", esp_err_to_name(err));
+        /* Do NOT silently delete the task — a silent exit means the measurement
+         * loop never runs and no output appears for 5+ minutes, making the
+         * failure invisible in serial captures (observed 2026-06-03, mem.py #8971).
+         *
+         * Instead: emit a loud banner, hold the error LED, wait 5 s so the
+         * serial monitor can capture the log, then reboot.  The device has a
+         * chance to recover on next power cycle (sensor VDD will have settled). */
+        ESP_LOGE(TAG, "╔══════════════════════════════════════════════════╗");
+        ESP_LOGE(TAG, "║  SCD40 INIT FAILED — rebooting in 5s            ║");
+        ESP_LOGE(TAG, "║  error: %-40s  ║", esp_err_to_name(err));
+        ESP_LOGE(TAG, "╚══════════════════════════════════════════════════╝");
         hivekit_led_set_pattern(HIVEKIT_LED_ERROR);
         esp_task_wdt_delete(NULL);
-        vTaskDelete(NULL);
-        return;
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        esp_restart();
+        return; /* unreachable; satisfies compiler */
     }
 
     ESP_LOGI(TAG, "SCD40 ready, entering measurement loop (interval=%dms)", SENSOR_INTERVAL_MS);
 
     int consec_errors = 0;
+    static uint32_t s_iter = 0;
 
     while (1) {
         /* Reset the watchdog every iteration — proves the loop is alive.
@@ -151,6 +171,13 @@ static void sensor_task(void *pvParameters)
          * timeout if SENSOR_WDT_TIMEOUT_S is shorter than the interval. */
         (void)esp_task_wdt_reset();
 
+        s_iter++;
+        ESP_LOGI(TAG, "sensor loop: iter=%u heap=%u min_heap=%u t=%ums",
+                 (unsigned)s_iter,
+                 (unsigned)esp_get_free_heap_size(),
+                 (unsigned)esp_get_minimum_free_heap_size(),
+                 (unsigned)(esp_timer_get_time() / 1000ULL));
+
         hivekit_scd40_reading_t reading;
         err = scd40_read_measurement(&reading);
 
@@ -159,6 +186,8 @@ static void sensor_task(void *pvParameters)
              * but we read every 30 s so this should not normally happen. Log
              * at debug level only. */
             ESP_LOGD(TAG, "SCD40 data not ready yet (skipping this cycle)");
+            /* DIAG: count as a completed loop iteration (loop alive, no data) */
+            g_sensor_loops_completed++;
             continue;
         }
 
@@ -184,17 +213,30 @@ static void sensor_task(void *pvParameters)
                     /* Keep retrying; WDT will catch a true permanent stall. */
                 }
             }
+            /* DIAG: count error paths too — loop counter still advances on errors */
+            g_sensor_loops_completed++;
             continue;
         }
 
         /* Successful read — reset error counter. */
         consec_errors = 0;
 
+        /* DIAG hook 1: last clean-read timestamp */
+        g_last_sensor_ok_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+
         ESP_LOGI(TAG, "SCD40: CO2=%.0f ppm  T=%.2f °C  RH=%.1f %%",
                  reading.co2_ppm, reading.temperature_c, reading.humidity_pct);
 
         hivekit_led_set_pattern(HIVEKIT_LED_SINGLE_FLASH);
+
+        /* DIAG hook 2: last call-to-report timestamp (set BEFORE the call so we
+         * detect a hang inside hivekit_report_scd40). */
+        g_last_report_call_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
         hivekit_report_scd40(&reading);
+
+        /* DIAG hook 3: loop completed (post-report; if hivekit_report_scd40
+         * blocks, this counter will NOT advance — gives us a 4th diagnosis case). */
+        g_sensor_loops_completed++;
     }
 }
 

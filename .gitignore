@@ -11,3 +11,12 @@ __pycache__/
 node_modules/
 .cache/
 .env
+
+# OpenClaw agent workspace (must never be committed)
+.openclaw/
+AGENTS.md
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md

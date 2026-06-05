@@ -66,6 +66,21 @@ static const char *TAG = "sensor_scd40";
 static i2c_master_bus_handle_t s_bus_handle  = NULL;
 static i2c_master_dev_handle_t s_dev_handle  = NULL;
 
+/* ── Init-retry config ────────────────────────────────────────────────────── */
+
+/** Number of attempts for start_periodic_measurement on cold boot.
+ *  Sensirion SCD4x datasheet §3.1: sensor needs ~1000 ms after VDD ramp.
+ *  1000 ms post-stop + 5 × 200 ms retries = up to 2000 ms recovery window,
+ *  comfortably covering worst-case VDD ramp per Sensirion SCD4x datasheet §3.1. */
+#define SCD40_START_MEAS_RETRIES   5
+#define SCD40_START_MEAS_RETRY_MS  200
+
+/** After init succeeds, if data_ready_status returns 0 this many consecutive
+ *  times, treat the sensor as stalled and return ESP_ERR_TIMEOUT. */
+#define SCD40_MAX_DATA_NOT_READY_CYCLES  3
+
+static int s_data_not_ready_count = 0;
+
 /* ── CRC-8 (Sensirion) ────────────────────────────────────────────────────── */
 
 static uint8_t scd40_crc8(const uint8_t *data, size_t len)
@@ -131,7 +146,11 @@ static esp_err_t scd40_read(uint16_t cmd, uint16_t *out, size_t n_words, uint32_
 
 esp_err_t scd40_init(void)
 {
-    /* Init I²C master bus */
+    /* Log first — so "SCD40 starting" always appears in serial output if init
+     * was called, regardless of what happens to the I²C commands below. */
+    ESP_LOGI(TAG, "SCD40 starting — waiting 5s for first measurement...");
+
+    /* Init I²C master bus (hardware only — does not talk to sensor) */
     i2c_master_bus_config_t bus_cfg = {
         .i2c_port      = I2C_NUM_0,
         .sda_io_num    = SCD40_SDA_GPIO,
@@ -154,15 +173,48 @@ esp_err_t scd40_init(void)
 
     /* Stop any ongoing measurement (safe to send even if idle) */
     (void)scd40_send_cmd(0x3F86); /* stop_periodic_measurement */
-    vTaskDelay(pdMS_TO_TICKS(500));
 
-    /* Start periodic measurement (runs every 5 seconds on SCD40) */
-    ESP_RETURN_ON_ERROR(scd40_send_cmd(SCD40_CMD_START_MEAS),
-                        TAG, "SCD40 start_periodic_measurement failed");
+    /* Wait for sensor to be ready after stop command + power-rail settle.
+     * Sensirion SCD4x datasheet §3.1 mandates ≥1000 ms after VDD ramp before
+     * issuing I²C commands.  1000 ms here satisfies the datasheet requirement
+     * even on a true cold boot (VDD ramp from 0 V). */
+    vTaskDelay(pdMS_TO_TICKS(1000));
 
-    /* Wait for first measurement (SCD40: ~5s, SCD41: ~5s) */
-    ESP_LOGI(TAG, "SCD40 starting — waiting 5s for first measurement...");
+    /* Start periodic measurement with retry loop.
+     *
+     * On a cold boot the SCD40's I²C engine can ACK the bus address while the
+     * measurement subsystem is still initialising.  The cmd write returns
+     * ESP_OK but the sensor never actually starts measuring — subsequent
+     * data_ready_status reads return 0 forever.  Retry with backoff so that a
+     * transient NACK (full I²C NAK) is also recovered. */
+    esp_err_t start_err = ESP_FAIL;
+    for (int attempt = 1; attempt <= SCD40_START_MEAS_RETRIES; attempt++) {
+        start_err = scd40_send_cmd(SCD40_CMD_START_MEAS);
+        if (start_err == ESP_OK) {
+            ESP_LOGI(TAG, "SCD40 start_periodic_measurement OK (attempt %d/%d)",
+                     attempt, SCD40_START_MEAS_RETRIES);
+            break;
+        }
+        ESP_LOGE(TAG, "SCD40 start_periodic_measurement failed attempt %d/%d: %s (0x%x)",
+                 attempt, SCD40_START_MEAS_RETRIES,
+                 esp_err_to_name(start_err), start_err);
+        if (attempt < SCD40_START_MEAS_RETRIES) {
+            vTaskDelay(pdMS_TO_TICKS(SCD40_START_MEAS_RETRY_MS));
+        }
+    }
+    if (start_err != ESP_OK) {
+        ESP_LOGE(TAG, "SCD40 start_periodic_measurement failed after %d attempts — giving up",
+                 SCD40_START_MEAS_RETRIES);
+        /* Tear down I²C bus allocated earlier in this function so that
+         * scd40_reinit() callers don't leak s_bus_handle / s_dev_handle. */
+        i2c_master_bus_rm_device(s_dev_handle); s_dev_handle = NULL;
+        i2c_del_master_bus(s_bus_handle);       s_bus_handle = NULL;
+        return start_err;
+    }
+
+    /* Wait for first measurement window (SCD40: ~5s, SCD41: ~5s). */
     vTaskDelay(pdMS_TO_TICKS(5000));
+    s_data_not_ready_count = 0;
 
     ESP_LOGI(TAG, "SCD40 ready (SDA=GPIO%d, SCL=GPIO%d)", SCD40_SDA_GPIO, SCD40_SCL_GPIO);
     return ESP_OK;
@@ -202,8 +254,21 @@ esp_err_t scd40_read_measurement(hivekit_scd40_reading_t *reading)
 
     /* Bits 10:0 are the count (>= 1 means data available) */
     if ((status & 0x07FF) == 0) {
-        return ESP_ERR_NOT_FOUND; /* Data not ready yet */
+        s_data_not_ready_count++;
+        if (s_data_not_ready_count >= SCD40_MAX_DATA_NOT_READY_CYCLES) {
+            /* Sensor has been silent for too long — likely stalled after a
+             * cold-boot where start_periodic_measurement was ACKed but the
+             * measurement subsystem never started.  Signal the caller so it
+             * can trigger scd40_reinit(). */
+            ESP_LOGE(TAG, "SCD40 data_ready_status=0 for %d consecutive cycles — sensor stall detected",
+                     s_data_not_ready_count);
+            return ESP_ERR_TIMEOUT;
+        }
+        ESP_LOGW(TAG, "SCD40 data not ready (cycle %d/%d)",
+                 s_data_not_ready_count, SCD40_MAX_DATA_NOT_READY_CYCLES);
+        return ESP_ERR_NOT_FOUND;
     }
+    s_data_not_ready_count = 0; /* reset on successful data */
 
     /* Read measurement: 3 words = [co2_raw, temp_raw, rh_raw] */
     uint16_t words[3];

@@ -22,6 +22,11 @@
  *   ezb_app_signal_to_string()              → ezbee/app_signals.h
  *   ezb_apsde_data_confirm_handler_register() → ezbee/aps.h
  *   ezb_aps_secur_enable_distributed_security() → ezbee/aps.h
+ *   ezb_af_user_cnf_callback_t              → ezbee/af.h
+ *   ezb_af_user_cnf_t (status/tsn/src_ep/dst_ep/cluster_id)
+ *                                             → ezbee/af.h
+ *   ezb_zcl_cmd_ctrl_t.cnf_ctx               → ezbee/zcl/zcl_common.h
+ *   ezb_zcl_report_attr_cmd_req()            → ezbee/zcl/zcl_general_cmd.h
  *   ezb_nwk_get_panid()                     → ezbee/nwk.h
  *   ezb_nwk_get_current_channel()           → ezbee/nwk.h
  *   ezb_nwk_get_short_address()             → ezbee/nwk.h
@@ -51,6 +56,10 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "esp_system.h"
+#include "esp_timer.h"
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "esp_zigbee.h"
 #include "ezbee/bdb.h"
@@ -60,6 +69,8 @@
 #include "ezbee/zha.h"
 #include "ezbee/zcl.h"
 #include "ezbee/zcl/zcl_common.h"
+#include "ezbee/zcl/zcl_general_cmd.h"
+#include "ezbee/af.h"
 #include "ezbee/zcl/cluster/basic.h"
 #include "ezbee/zcl/cluster/carbon_dioxide_measurement_desc.h"
 #include "ezbee/zcl/cluster/temperature_measurement_desc.h"
@@ -84,6 +95,22 @@ static const char *TAG = "hivekit_core";
 
 static const hivekit_config_t *s_cfg = NULL;
 static void (*s_signal_cb)(uint16_t signal_type, const void *params) = NULL;
+
+/* ── TX debug counters ────────────────────────────────────────────────────── */
+static uint32_t s_tx_queued    = 0; /* incremented once per ezb_zcl_report_attr_cmd_req() call */
+static uint32_t s_tx_confirmed = 0; /* incremented in ZCL cmd confirm cb on success            */
+static uint32_t s_tx_failed    = 0; /* incremented in ZCL cmd confirm cb on failure             */
+
+/* ── Freeze-diagnostic counters (PR #14) ──────────────────────────────────
+ * Written from a single task each (sensor_task or Zigbee confirm callback).
+ * 32-bit naturally aligned stores are atomic on ESP32-C6 (RISC-V RV32).
+ * volatile prevents register caching across heartbeat reads.
+ * Timestamps are esp_timer_get_time() / 1000ULL (ms since boot, wraps ~49d).
+ */
+volatile uint32_t g_sensor_loops_completed = 0; /* monotonic loop counter       */
+volatile uint32_t g_last_sensor_ok_ms      = 0; /* ms when last clean read done */
+volatile uint32_t g_last_report_call_ms    = 0; /* ms when hivekit_report_scd40 entered */
+volatile uint32_t g_last_ezb_ok_ms         = 0; /* ms when any ZCL confirm ok   */
 
 /* ── Scheduler-alarm callbacks ───────────────────────────────────────────── */
 
@@ -223,18 +250,44 @@ static bool hivekit_app_signal_handler(const ezb_app_signal_t *app_signal)
     return true; /* Handled */
 }
 
-/* ── APS data confirm handler ─────────────────────────────────────────────
- * Defence in depth against silent TX failures.
+/* ── ZCL per-command confirm callback ────────────────────────────────────
+ * Wired via cmd_ctrl.cnf_ctx.cb on each ezb_zcl_report_attr_cmd_req() call.
  *
- * esp_zb_zcl_report_attr_cmd_req() returns ESP_OK as soon as the report is
- * queued at the APS layer; the actual over-the-air outcome is reported
- * asynchronously via the APSDE-DATA.confirm primitive. Without a registered
- * confirm handler that primitive is dropped, so a route failure or NWK-layer
- * retry exhaustion is invisible to firmware and to anyone reading the logs.
+ * Fires in Zigbee-task context. Must not block. Only does counter increments
+ * and one log line — both non-blocking.
  *
- * Hooking it lets us at least log the failure with cluster id and status so
- * it shows up alongside the original "ZCL report results" line in flight
- * recorder traces. SOURCE: ezbee/aps.h — ezb_apsde_data_confirm_t.
+ * Non-static so hivekit_reporting.c can reference it for hivekit_force_report.
+ *
+ * SOURCE: ezbee/af.h — ezb_af_user_cnf_t, ezb_af_user_cnf_callback_t
+ *         ezbee/zcl/zcl_common.h — ezb_zcl_cmd_cnf_ctx_t
+ */
+void hivekit_zcl_cmd_confirm_cb(ezb_af_user_cnf_t *cnf, void *user_ctx)
+{
+    (void)user_ctx;
+    if (!cnf) {
+        return;
+    }
+    if (cnf->status == 0) {
+        s_tx_confirmed++;
+        g_last_ezb_ok_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+        ESP_LOGI(TAG, "ZCL TX ok: cluster=0x%04x ep=%u->%u tsn=%u",
+                 (unsigned)cnf->cluster_id,
+                 (unsigned)cnf->src_ep,
+                 (unsigned)cnf->dst_ep,
+                 (unsigned)cnf->tsn);
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "ZCL TX failed: cluster=0x%04x ep=%u->%u tsn=%u status=0x%02x",
+                 (unsigned)cnf->cluster_id,
+                 (unsigned)cnf->src_ep,
+                 (unsigned)cnf->dst_ep,
+                 (unsigned)cnf->tsn,
+                 (unsigned)cnf->status);
+    }
+}
+
+/* ── APS data confirm handler (redundant diagnostic — kept for defence in depth)
+ * SOURCE: ezbee/aps.h — ezb_apsde_data_confirm_t.
  */
 static void hivekit_aps_data_confirm_cb(const ezb_apsde_data_confirm_t *confirm)
 {
@@ -250,11 +303,46 @@ static void hivekit_aps_data_confirm_cb(const ezb_apsde_data_confirm_t *confirm)
                  (unsigned)confirm->status,
                  (unsigned)confirm->asdu_length);
     } else {
-        ESP_LOGD(TAG,
+        g_last_ezb_ok_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+        ESP_LOGI(TAG,
                  "APS TX ok: cluster=0x%04x ep=%u->%u",
                  (unsigned)confirm->cluster_id,
                  (unsigned)confirm->src_endpoint,
                  (unsigned)confirm->dst_endpoint);
+    }
+}
+
+/* ── TX heartbeat task ────────────────────────────────────────────────────── */
+
+static void tx_heartbeat_task(void *pvParameters)
+{
+    (void)pvParameters;
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(5 * 60 * 1000));
+        uint32_t uptime_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+        uint32_t uptime_s  = uptime_ms / 1000;
+
+        /* Snapshot volatile diag counters once (no lock — diagnostic only). */
+        uint32_t loops      = g_sensor_loops_completed;
+        uint32_t last_ok_s  = g_last_sensor_ok_ms   / 1000;
+        uint32_t last_rep_s = g_last_report_call_ms / 1000;
+        uint32_t last_ezb_s = g_last_ezb_ok_ms      / 1000;
+        uint32_t heap_now   = esp_get_free_heap_size();
+        uint32_t heap_min   = esp_get_minimum_free_heap_size();
+
+        ESP_LOGI(TAG,
+            "HK heartbeat: uptime=%us loops=%u last_ok=%us last_report=%us "
+            "last_ezb=%us queued=%u confirmed=%u failed=%u heap_now=%u min_heap=%u",
+            (unsigned)uptime_s,
+            (unsigned)loops,
+            (unsigned)last_ok_s,
+            (unsigned)last_rep_s,
+            (unsigned)last_ezb_s,
+            (unsigned)s_tx_queued,
+            (unsigned)s_tx_confirmed,
+            (unsigned)s_tx_failed,
+            (unsigned)heap_now,
+            (unsigned)heap_min);
     }
 }
 
@@ -275,6 +363,20 @@ esp_err_t hivekit_init(const hivekit_config_t *cfg)
      * surface in the log instead of being swallowed.
      * SOURCE: ezbee/aps.h — ezb_apsde_data_confirm_handler_register */
     ezb_apsde_data_confirm_handler_register(hivekit_aps_data_confirm_cb);
+
+    /* Start TX heartbeat task — logs queued/confirmed/failed/uptime every 5 min.
+     * Priority tskIDLE_PRIORITY+1 keeps it low enough not to affect sensor tasks.
+     * Non-fatal: a failure here only means heartbeat lines won't appear in logs. */
+    TaskHandle_t heartbeat_handle = NULL;
+    BaseType_t task_ret = xTaskCreate(tx_heartbeat_task,
+                                      "tx_heartbeat",
+                                      2048,
+                                      NULL,
+                                      tskIDLE_PRIORITY + 1,
+                                      &heartbeat_handle);
+    if (task_ret != pdPASS) {
+        ESP_LOGW(TAG, "Failed to create tx_heartbeat_task (non-fatal)");
+    }
 
     /* TODO (Phase 1): init LED driver here using espressif/led_indicator */
     /* For now, LED ops are stubs (see hivekit_led.c) */
@@ -407,7 +509,21 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
      * e.g. 25.30 °C → 2530
      * SOURCE: ezbee/zcl/cluster/temperature_measurement_desc.h */
     int16_t temp_val = (int16_t)(reading->temperature_c * 100.0f);
+
+    /* Humidity: uint16 in units of 0.01 %
+     * e.g. 55.00% → 5500
+     * SOURCE: ezbee/zcl/cluster/rel_humidity_measurement_desc.h */
+    uint16_t rh_val = (uint16_t)(reading->humidity_pct * 100.0f);
+
+    /* CO2: single float in [0.0, 1.0] where 1.0 = 1,000,000 ppm
+     * e.g. 800 ppm → 0.0008f
+     * SOURCE: ezbee/zcl/cluster/carbon_dioxide_measurement_desc.h */
+    float co2_val = reading->co2_ppm / 1000000.0f;
+
+    ESP_LOGI(TAG, "report: pre-lock t=%ums", (unsigned)(esp_timer_get_time() / 1000ULL));
     esp_zigbee_lock_acquire(portMAX_DELAY);
+    ESP_LOGI(TAG, "report: locked t=%ums", (unsigned)(esp_timer_get_time() / 1000ULL));
+
     esp_err_t t_err = ezb_zcl_set_attr_value(ep_id,
                            EZB_ZCL_CLUSTER_ID_TEMPERATURE_MEASUREMENT,
                            EZB_ZCL_CLUSTER_SERVER,
@@ -416,10 +532,6 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
                            (uint8_t *)&temp_val,
                            false);
 
-    /* Humidity: uint16 in units of 0.01 %
-     * e.g. 55.00% → 5500
-     * SOURCE: ezbee/zcl/cluster/rel_humidity_measurement_desc.h */
-    uint16_t rh_val = (uint16_t)(reading->humidity_pct * 100.0f);
     esp_err_t h_err = ezb_zcl_set_attr_value(ep_id,
                            EZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
                            EZB_ZCL_CLUSTER_SERVER,
@@ -428,10 +540,6 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
                            (uint8_t *)&rh_val,
                            false);
 
-    /* CO2: single float in [0.0, 1.0] where 1.0 = 1,000,000 ppm
-     * e.g. 800 ppm → 0.0008f
-     * SOURCE: ezbee/zcl/cluster/carbon_dioxide_measurement_desc.h */
-    float co2_val = reading->co2_ppm / 1000000.0f;
     esp_err_t c_err = ezb_zcl_set_attr_value(ep_id,
                            EZB_ZCL_CLUSTER_ID_CARBON_DIOXIDE_MEASUREMENT,
                            EZB_ZCL_CLUSTER_SERVER,
@@ -440,9 +548,75 @@ esp_err_t hivekit_report_scd40(const hivekit_scd40_reading_t *reading)
                            (uint8_t *)&co2_val,
                            false);
 
-    esp_zigbee_lock_release();
+    /* Send per-attribute ZCL Report Attribute commands with per-command confirm
+     * callback. Queued counter increments once per report_attr_cmd_req call
+     * (3 per sensor cycle for SCD40 — temp, humidity, CO2). Bump s_tx_queued
+     * only on EZB_ERR_NONE; on sync-failure bump s_tx_failed and log a warning.
+     * SOURCE: ezbee/zcl/zcl_general_cmd.h — ezb_zcl_report_attr_cmd_req()
+     *         ezbee/zcl/zcl_common.h      — ezb_zcl_cmd_ctrl_t.cnf_ctx
+     *         ezbee/af.h                  — ezb_af_user_cnf_ctx_t, ezb_af_user_cnf_callback_t */
 
-    ESP_LOGI(TAG, "ZCL report results: temp=0x%x humidity=0x%x co2=0x%x (co2_raw=%.6f from %.0f ppm)",
+    /* Temperature report */
+    ezb_zcl_report_attr_cmd_t temp_cmd = {
+        .cmd_ctrl = {
+            .fc.direction       = EZB_ZCL_CMD_DIRECTION_TO_CLI,
+            .dst_addr.addr_mode = EZB_ADDR_MODE_NONE,
+            .src_ep             = ep_id,
+            .cluster_id         = EZB_ZCL_CLUSTER_ID_TEMPERATURE_MEASUREMENT,
+            .cnf_ctx.cb         = hivekit_zcl_cmd_confirm_cb,
+            .cnf_ctx.user_ctx   = NULL,
+        },
+        .payload.attr_id = EZB_ZCL_ATTR_TEMPERATURE_MEASUREMENT_MEASURED_VALUE_ID,
+    };
+    if (ezb_zcl_report_attr_cmd_req(&temp_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req temp sync-failed");
+    }
+
+    /* Humidity report */
+    ezb_zcl_report_attr_cmd_t rh_cmd = {
+        .cmd_ctrl = {
+            .fc.direction       = EZB_ZCL_CMD_DIRECTION_TO_CLI,
+            .dst_addr.addr_mode = EZB_ADDR_MODE_NONE,
+            .src_ep             = ep_id,
+            .cluster_id         = EZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
+            .cnf_ctx.cb         = hivekit_zcl_cmd_confirm_cb,
+            .cnf_ctx.user_ctx   = NULL,
+        },
+        .payload.attr_id = EZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ID,
+    };
+    if (ezb_zcl_report_attr_cmd_req(&rh_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req rh sync-failed");
+    }
+
+    /* CO2 report */
+    ezb_zcl_report_attr_cmd_t co2_cmd = {
+        .cmd_ctrl = {
+            .fc.direction       = EZB_ZCL_CMD_DIRECTION_TO_CLI,
+            .dst_addr.addr_mode = EZB_ADDR_MODE_NONE,
+            .src_ep             = ep_id,
+            .cluster_id         = EZB_ZCL_CLUSTER_ID_CARBON_DIOXIDE_MEASUREMENT,
+            .cnf_ctx.cb         = hivekit_zcl_cmd_confirm_cb,
+            .cnf_ctx.user_ctx   = NULL,
+        },
+        .payload.attr_id = EZB_ZCL_ATTR_CARBON_DIOXIDE_MEASUREMENT_MEASURED_VALUE_ID,
+    };
+    if (ezb_zcl_report_attr_cmd_req(&co2_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req co2 sync-failed");
+    }
+
+    esp_zigbee_lock_release();
+    ESP_LOGI(TAG, "report: released t=%ums", (unsigned)(esp_timer_get_time() / 1000ULL));
+
+    ESP_LOGI(TAG, "ZCL set+req queued: temp=0x%x humidity=0x%x co2=0x%x (co2_raw=%.6f from %.0f ppm)",
              t_err, h_err, c_err, co2_val, reading->co2_ppm);
 
     return ESP_OK;
@@ -533,7 +707,9 @@ esp_err_t hivekit_report_sht40(const hivekit_sht40_reading_t *reading)
      * SOURCE: ezbee/zcl/cluster/rel_humidity_measurement_desc.h */
     uint16_t rh_val = (uint16_t)(reading->humidity_pct * 100.0f);
 
+    ESP_LOGI(TAG, "report: pre-lock t=%ums", (unsigned)(esp_timer_get_time() / 1000ULL));
     esp_zigbee_lock_acquire(portMAX_DELAY);
+    ESP_LOGI(TAG, "report: locked t=%ums", (unsigned)(esp_timer_get_time() / 1000ULL));
 
     esp_err_t t_err = ezb_zcl_set_attr_value(ep_id,
                            EZB_ZCL_CLUSTER_ID_TEMPERATURE_MEASUREMENT,
@@ -551,9 +727,50 @@ esp_err_t hivekit_report_sht40(const hivekit_sht40_reading_t *reading)
                            (uint8_t *)&rh_val,
                            false);
 
-    esp_zigbee_lock_release();
+    /* Send per-attribute ZCL Report Attribute commands (2 per cycle for SHT40). */
 
-    ESP_LOGI(TAG, "[sht40] ZCL: temp=0x%x rh=0x%x (%.2f°C, %.1f%%)",
+    /* Temperature report */
+    ezb_zcl_report_attr_cmd_t sht40_temp_cmd = {
+        .cmd_ctrl = {
+            .fc.direction       = EZB_ZCL_CMD_DIRECTION_TO_CLI,
+            .dst_addr.addr_mode = EZB_ADDR_MODE_NONE,
+            .src_ep             = ep_id,
+            .cluster_id         = EZB_ZCL_CLUSTER_ID_TEMPERATURE_MEASUREMENT,
+            .cnf_ctx.cb         = hivekit_zcl_cmd_confirm_cb,
+            .cnf_ctx.user_ctx   = NULL,
+        },
+        .payload.attr_id = EZB_ZCL_ATTR_TEMPERATURE_MEASUREMENT_MEASURED_VALUE_ID,
+    };
+    if (ezb_zcl_report_attr_cmd_req(&sht40_temp_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req sht40_temp sync-failed");
+    }
+
+    /* Humidity report */
+    ezb_zcl_report_attr_cmd_t sht40_rh_cmd = {
+        .cmd_ctrl = {
+            .fc.direction       = EZB_ZCL_CMD_DIRECTION_TO_CLI,
+            .dst_addr.addr_mode = EZB_ADDR_MODE_NONE,
+            .src_ep             = ep_id,
+            .cluster_id         = EZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
+            .cnf_ctx.cb         = hivekit_zcl_cmd_confirm_cb,
+            .cnf_ctx.user_ctx   = NULL,
+        },
+        .payload.attr_id = EZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ID,
+    };
+    if (ezb_zcl_report_attr_cmd_req(&sht40_rh_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req sht40_rh sync-failed");
+    }
+
+    esp_zigbee_lock_release();
+    ESP_LOGI(TAG, "report: released t=%ums", (unsigned)(esp_timer_get_time() / 1000ULL));
+
+    ESP_LOGI(TAG, "[sht40] ZCL set+req queued: temp=0x%x rh=0x%x (%.2f°C, %.1f%%)",
              t_err, h_err, reading->temperature_c, reading->humidity_pct);
 
     return ESP_OK;
@@ -668,7 +885,9 @@ esp_err_t hivekit_report_bme280(const hivekit_bme280_reading_t *reading)
      * SOURCE: ezbee/zcl/cluster/pressure_measurement_desc.h */
     int16_t press_val = (int16_t)(reading->pressure_hpa + 0.5f); /* round to nearest hPa */
 
+    ESP_LOGI(TAG, "report: pre-lock t=%ums", (unsigned)(esp_timer_get_time() / 1000ULL));
     esp_zigbee_lock_acquire(portMAX_DELAY);
+    ESP_LOGI(TAG, "report: locked t=%ums", (unsigned)(esp_timer_get_time() / 1000ULL));
 
     esp_err_t t_err = ezb_zcl_set_attr_value(ep_id,
                            EZB_ZCL_CLUSTER_ID_TEMPERATURE_MEASUREMENT,
@@ -694,9 +913,69 @@ esp_err_t hivekit_report_bme280(const hivekit_bme280_reading_t *reading)
                            (uint8_t *)&press_val,
                            false);
 
-    esp_zigbee_lock_release();
+    /* Send per-attribute ZCL Report Attribute commands (3 per cycle for BME280). */
 
-    ESP_LOGI(TAG, "[bme280] ZCL: temp=0x%x rh=0x%x press=0x%x (%.2f°C, %.1f%%, %.1f hPa)",
+    /* Temperature report */
+    ezb_zcl_report_attr_cmd_t bme280_temp_cmd = {
+        .cmd_ctrl = {
+            .fc.direction       = EZB_ZCL_CMD_DIRECTION_TO_CLI,
+            .dst_addr.addr_mode = EZB_ADDR_MODE_NONE,
+            .src_ep             = ep_id,
+            .cluster_id         = EZB_ZCL_CLUSTER_ID_TEMPERATURE_MEASUREMENT,
+            .cnf_ctx.cb         = hivekit_zcl_cmd_confirm_cb,
+            .cnf_ctx.user_ctx   = NULL,
+        },
+        .payload.attr_id = EZB_ZCL_ATTR_TEMPERATURE_MEASUREMENT_MEASURED_VALUE_ID,
+    };
+    if (ezb_zcl_report_attr_cmd_req(&bme280_temp_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req bme280_temp sync-failed");
+    }
+
+    /* Humidity report */
+    ezb_zcl_report_attr_cmd_t bme280_rh_cmd = {
+        .cmd_ctrl = {
+            .fc.direction       = EZB_ZCL_CMD_DIRECTION_TO_CLI,
+            .dst_addr.addr_mode = EZB_ADDR_MODE_NONE,
+            .src_ep             = ep_id,
+            .cluster_id         = EZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
+            .cnf_ctx.cb         = hivekit_zcl_cmd_confirm_cb,
+            .cnf_ctx.user_ctx   = NULL,
+        },
+        .payload.attr_id = EZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ID,
+    };
+    if (ezb_zcl_report_attr_cmd_req(&bme280_rh_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req bme280_rh sync-failed");
+    }
+
+    /* Pressure report */
+    ezb_zcl_report_attr_cmd_t bme280_press_cmd = {
+        .cmd_ctrl = {
+            .fc.direction       = EZB_ZCL_CMD_DIRECTION_TO_CLI,
+            .dst_addr.addr_mode = EZB_ADDR_MODE_NONE,
+            .src_ep             = ep_id,
+            .cluster_id         = EZB_ZCL_CLUSTER_ID_PRESSURE_MEASUREMENT,
+            .cnf_ctx.cb         = hivekit_zcl_cmd_confirm_cb,
+            .cnf_ctx.user_ctx   = NULL,
+        },
+        .payload.attr_id = EZB_ZCL_ATTR_PRESSURE_MEASUREMENT_MEASURED_VALUE_ID,
+    };
+    if (ezb_zcl_report_attr_cmd_req(&bme280_press_cmd) == EZB_ERR_NONE) {
+        s_tx_queued++;
+    } else {
+        s_tx_failed++;
+        ESP_LOGW(TAG, "report_attr_cmd_req bme280_press sync-failed");
+    }
+
+    esp_zigbee_lock_release();
+    ESP_LOGI(TAG, "report: released t=%ums", (unsigned)(esp_timer_get_time() / 1000ULL));
+
+    ESP_LOGI(TAG, "[bme280] ZCL set+req queued: temp=0x%x rh=0x%x press=0x%x (%.2f°C, %.1f%%, %.1f hPa)",
              t_err, h_err, p_err,
              reading->temperature_c, reading->humidity_pct, reading->pressure_hpa);
 
